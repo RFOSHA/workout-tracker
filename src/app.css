@@ -1,0 +1,14 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+@plugin '@tailwindcss/forms';
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: #0f172a; /* sleeper-bg */
+  color: #f8fafc; /* sleeper-text */
+  -webkit-font-smoothing: antialiased;
+}
