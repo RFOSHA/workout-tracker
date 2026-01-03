@@ -9,7 +9,12 @@
     try {
       loading = true;
       message = "";
-      const { error } = await supabase.auth.signInWithOtp({ email });
+      const { error } = await supabase.auth.signInWithOtp({ 
+        email,
+        options: {
+            emailRedirectTo: `${window.location.origin}`
+        }
+      });
       if (error) throw error;
       message = "Check your email for the login link!";
     } catch (error) {
