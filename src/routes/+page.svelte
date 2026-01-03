@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import type { Session } from "@supabase/supabase-js";
   import { supabase } from "$lib/supabaseClient";
-  import Login from "../components/Login.svelte";
+  import Login from "../components/login.svelte";
 
   let session: Session | null = null;
   let currentMesocycle: any = null;
