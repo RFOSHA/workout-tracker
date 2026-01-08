@@ -9,6 +9,7 @@
     BarChart2, Layers, Dumbbell, Calendar, Filter,
     StickyNote
   } from "lucide-svelte";
+  import Modal from "../../../../src/components/common/Modal.svelte"
 
   // FIX: Handle undefined ID gracefully
   const workoutId = $page.params.id;
@@ -19,6 +20,7 @@
   let loading = true;
   let saving = false;
   let showFinishModal = false;
+  let addToFutureWeeks = false;
   
   // Library State (For Add Exercise Modal)
   let exerciseLibrary: any[] = [];
@@ -559,8 +561,12 @@
   }
 
   // --- NEW: ADD & CUSTOM EXERCISE LOGIC ---
-  function openAddExerciseModal() { newExerciseSearch = "";
-    newExerciseTarget = 3; showAddExerciseModal = true; }
+function openAddExerciseModal() { 
+    newExerciseSearch = "";
+    newExerciseTarget = 3; 
+    addToFutureWeeks = false; 
+    showAddExerciseModal = true; 
+  }
   
   function selectExerciseFromLibrary(exName: string) {
     newExerciseSearch = exName;
@@ -606,10 +612,57 @@
     if (!newExerciseSearch.trim()) return; 
     showAddExerciseModal = false; 
     loading = true;
+
     const initialSets = Array.from({ length: newExerciseTarget }, () => ({ weight: null, reps: null, dropsets: [] }));
-    const { data, error } = await supabase.from('workout_exercises').insert({ workout_id: workoutId, exercise_name: newExerciseSearch, target_sets: newExerciseTarget, set_results: initialSets }).select().single();
-    if (error) { alert("Error adding exercise: " + error.message); loading = false; return;
+    
+    // 1. Add to CURRENT workout (Existing Logic)
+    const { data, error } = await supabase
+        .from('workout_exercises')
+        .insert({ 
+            workout_id: workoutId, 
+            exercise_name: newExerciseSearch, 
+            target_sets: newExerciseTarget, 
+            set_results: initialSets 
+        })
+        .select()
+        .single();
+
+    if (error) { 
+        alert("Error adding exercise: " + error.message); 
+        loading = false; 
+        return;
     }
+
+    // 👇 NEW: Logic to add to future weeks
+    if (addToFutureWeeks && workout.mesocycle_id) {
+        try {
+            // Find all FUTURE workouts in this mesocycle with the same day_number
+            const { data: futureWorkouts } = await supabase
+                .from('workouts')
+                .select('id')
+                .eq('mesocycle_id', workout.mesocycle_id)
+                .eq('day_number', workout.day_number) // Matches "Push Day" to future "Push Days"
+                .gt('week_number', workout.week_number); // Only future weeks
+
+            if (futureWorkouts && futureWorkouts.length > 0) {
+                const futurePayload = futureWorkouts.map(w => ({
+                    workout_id: w.id,
+                    exercise_name: newExerciseSearch,
+                    target_sets: newExerciseTarget,
+                    set_results: initialSets
+                }));
+
+                const { error: futureError } = await supabase
+                    .from('workout_exercises')
+                    .insert(futurePayload);
+                
+                if (futureError) console.error("Failed to propagate to future weeks:", futureError);
+            }
+        } catch (err) {
+            console.error("Error adding to future weeks:", err);
+        }
+    }
+
     exercises = [...exercises, { ...data, set_results: initialSets }];
     loading = false;
     setTimeout(() => { window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }, 100);
@@ -809,93 +862,114 @@
 
   {/if}
 
-  {#if showFinishModal} <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"> <div class="bg-gray-800 rounded-2xl shadow-2xl max-w-sm w-full border border-gray-700 p-6 text-center"> <div class="mx-auto bg-green-900/30 w-16 h-16 rounded-full flex items-center justify-center mb-4"><CheckCircle class="text-green-500" size={32} /></div> <h3 class="text-xl font-bold text-white mb-2">Workout Complete?</h3> <div class="flex gap-3 mt-8"> <button on:click={() => showFinishModal = false} class="flex-1 py-3 px-4 bg-gray-700 hover:bg-gray-600 text-white rounded-xl">Cancel</button> <button on:click={confirmFinish} class="flex-1 py-3 px-4 bg-green-600 hover:bg-green-500 text-white rounded-xl font-bold">Yes, Finish</button> </div> </div> </div> {/if}
+  {#if showFinishModal} 
+    <Modal on:close={() => showFinishModal = false}>
+        <div class="text-center">
+            <div class="mx-auto bg-green-900/30 w-16 h-16 rounded-full flex items-center justify-center mb-4">
+                <CheckCircle class="text-green-500" size={32} />
+            </div> 
+            <h3 class="text-xl font-bold text-white mb-2">Workout Complete?</h3> 
+            <div class="flex gap-3 mt-8"> 
+                <button on:click={() => showFinishModal = false} class="flex-1 py-3 px-4 bg-gray-700 hover:bg-gray-600 text-white rounded-xl">
+                    Cancel
+                </button> 
+                <button on:click={confirmFinish} class="flex-1 py-3 px-4 bg-green-600 hover:bg-green-500 text-white rounded-xl font-bold">
+                    Yes, Finish
+                </button> 
+            </div> 
+        </div>
+    </Modal>
+  {/if}
   
-  {#if showHistoryModal} 
-    <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" on:click={() => showHistoryModal = false}> 
-        <div class="bg-gray-800 rounded-2xl p-6 max-w-md w-full max-h-[80vh] overflow-y-auto" on:click|stopPropagation> 
-            <div class="flex justify-between mb-4"><h3 class="text-xl font-bold">{historyExerciseName}</h3><button on:click={() => showHistoryModal = false}><X /></button></div> 
-            {#if historyLoading} Loading... {:else} 
-     
-                {#each historyData as sess} 
-                    <div class="bg-gray-900 p-3 rounded mb-2 border border-gray-800"> 
-                        <div class="flex justify-between text-sm text-blue-400 mb-1 font-bold"><span>{sess.date}</span><span>{sess.workoutName}</span></div> 
-                        
-   
-                        <div class="flex flex-wrap gap-2 text-[10px] text-gray-500 mb-2 uppercase tracking-wide">
-                            <span class="bg-gray-800 px-1.5 py-0.5 rounded text-gray-400">{sess.mesoName}</span>
-                            <span>•</span>
-          
-                            <span>Week {sess.week}</span>
-                            <span>•</span>
-                            <span>Sched: {sess.scheduled}</span>
-                        
-                        </div>
-
-                        {#each sess.sets as s, i} 
-                            <div class="text-sm flex gap-4 border-t border-gray-800/50 py-1">
-                                <span class="w-4 text-gray-600 font-mono text-xs mt-0.5">{i+1}</span> 
-                                <span class="text-white font-medium">{s.weight || 0} lbs</span> 
-                                <span class="text-green-400 font-bold">{s.reps || 0} reps</span>
-                            </div> 
-                        {/each} 
-                    </div> 
-                {/each} 
-       
-            {/if} 
-        </div> 
-    </div> 
+  {#if showHistoryModal}
+    <Modal widthClass="max-w-md" on:close={() => showHistoryModal = false}>
+      <div class="flex justify-between mb-4">
+        <h3 class="text-xl font-bold">{historyExerciseName}</h3>
+        </div>
+      
+      {#if historyLoading}
+        <div class="text-center text-gray-500 py-8">Loading...</div>
+      {:else}
+        {#each historyData as sess}
+          <div class="bg-gray-900 p-3 rounded mb-2 border border-gray-800">
+            <div class="flex justify-between text-sm text-blue-400 mb-1 font-bold">
+              <span>{sess.date}</span>
+              <span>{sess.workoutName}</span>
+            </div>
+            <div class="flex flex-wrap gap-2 text-[10px] text-gray-500 mb-2 uppercase tracking-wide">
+                <span class="bg-gray-800 px-1.5 py-0.5 rounded text-gray-400">{sess.mesoName}</span>
+                <span>•</span>
+                <span>Week {sess.week}</span>
+                <span>•</span>
+                <span>Sched: {sess.scheduled}</span>
+            </div>
+            {#each sess.sets as s, i}
+                <div class="text-sm flex gap-4 border-t border-gray-800/50 py-1">
+                    <span class="w-4 text-gray-600 font-mono text-xs mt-0.5">{i+1}</span>
+                    <span class="text-white font-medium">{s.weight || 0} lbs</span>
+                    <span class="text-green-400 font-bold">{s.reps || 0} reps</span>
+                </div>
+            {/each}
+          </div>
+        {/each}
+      {/if}
+    </Modal>
   {/if}
 
-  {#if showAddExerciseModal} 
-    <div class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"> 
-        <div class="bg-gray-800 p-6 rounded-2xl w-full max-w-sm flex flex-col max-h-[80vh]"> 
-            <h3 class="text-xl font-bold mb-4">Add Exercise</h3> 
-            
-            <div class="relative mb-4">
- 
-                <Search size={16} class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-                <input 
-                    type="text" 
-                    bind:value={newExerciseSearch} 
-                   
-                    placeholder="Search Library..." 
-                    class="w-full bg-gray-900 border border-gray-700 p-3 pl-10 rounded-lg text-white focus:border-blue-500 outline-none" 
-                    autofocus
-                />
-            </div>
+  {#if showAddExerciseModal}
+    <Modal on:close={() => showAddExerciseModal = false}>
+      <h3 class="text-xl font-bold mb-4">Add Exercise</h3>
 
-            {#if filteredLibrary.length > 0}
-    
-                <div class="flex-1 overflow-y-auto mb-4 space-y-1 border border-gray-800 rounded-lg p-1 bg-gray-900/50 min-h-0">
-                    {#each filteredLibrary as item}
-                        <button 
-                            on:click={() => selectExerciseFromLibrary(item.name)}
-                            class="w-full text-left p-3 rounded-md hover:bg-gray-700/50 flex justify-between items-center transition-colors group"
-                        >
-                            <span class="text-sm text-gray-200 group-hover:text-white font-medium">{item.name}</span>
-       
-                            <span class="text-[10px] uppercase font-bold tracking-wider text-gray-500 bg-gray-800 border border-gray-700 px-2 py-0.5 rounded-full group-hover:border-gray-500 group-hover:text-gray-400">
-                                {item.muscle_group}
-                            </span>
-      
-                        </button>
-                    {/each}
-                </div>
-            {:else if newExerciseSearch.trim().length > 0}
-                <div class="text-center py-4 text-sm text-gray-500 italic mb-4">
-        
-                    No matches found.
-                    <button on:click={triggerCustomExercise} class="text-blue-400 hover:underline">Create Custom Exercise?</button>
-                </div>
-            {/if}
+      <div class="relative mb-4">
+        <Search size={16} class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+        <input 
+          type="text" 
+          bind:value={newExerciseSearch} 
+          placeholder="Search Library..." 
+          class="w-full bg-gray-900 border border-gray-700 p-3 pl-10 rounded-lg text-white focus:border-blue-500 outline-none" 
+          autofocus
+        />
+      </div>
 
-            <div class="flex gap-3 mt-auto pt-2 border-t border-gray-700">
-                <button on:click={() => showAddExerciseModal = false} class="flex-1 bg-gray-700 hover:bg-gray-600 py-3 rounded-lg font-medium transition-colors">Cancel</button>
-                <button on:click={confirmAddExercise} class="flex-1 bg-blue-600 hover:bg-blue-500 py-3 rounded-lg font-bold shadow-lg transition-transform active:scale-95">Add</button>
-            </div> 
-        </div> 
-    </div> 
+      {#if filteredLibrary.length > 0}
+          <div class="flex-1 overflow-y-auto mb-4 space-y-1 border border-gray-800 rounded-lg p-1 bg-gray-900/50 min-h-0 max-h-60">
+              {#each filteredLibrary as item}
+                  <button 
+                      on:click={() => selectExerciseFromLibrary(item.name)}
+                      class="w-full text-left p-3 rounded-md hover:bg-gray-700/50 flex justify-between items-center transition-colors group"
+                  >
+                      <span class="text-sm text-gray-200 group-hover:text-white font-medium">{item.name}</span>
+                      <span class="text-[10px] uppercase font-bold tracking-wider text-gray-500 bg-gray-800 border border-gray-700 px-2 py-0.5 rounded-full group-hover:border-gray-500 group-hover:text-gray-400">
+                          {item.muscle_group}
+                      </span>
+                  </button>
+              {/each}
+          </div>
+      {:else if newExerciseSearch.trim().length > 0}
+          <div class="text-center py-4 text-sm text-gray-500 italic mb-4">
+              No matches found.
+              <button on:click={triggerCustomExercise} class="text-blue-400 hover:underline">Create Custom Exercise?</button>
+          </div>
+      {/if}
+
+      <div class="mb-4 pt-2 border-t border-gray-700/50">
+          <label class="flex items-center gap-3 cursor-pointer group">
+              <div class="relative flex items-center">
+                  <input type="checkbox" bind:checked={addToFutureWeeks} class="peer sr-only">
+                  <div class="w-5 h-5 border-2 border-gray-600 rounded bg-gray-900 peer-checked:bg-blue-600 peer-checked:border-blue-600 transition-all"></div>
+                  <CheckCircle size={12} class="absolute text-white opacity-0 peer-checked:opacity-100 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+              <span class="text-sm text-gray-400 group-hover:text-gray-300 transition-colors">
+                  Add to remaining weeks?
+              </span>
+          </label>
+      </div>
+
+      <div class="flex gap-3 mt-auto pt-2 border-t border-gray-700">
+        <button on:click={() => showAddExerciseModal = false} class="flex-1 bg-gray-700 hover:bg-gray-600 py-3 rounded-lg font-medium transition-colors">Cancel</button>
+        <button on:click={confirmAddExercise} class="flex-1 bg-blue-600 hover:bg-blue-500 py-3 rounded-lg font-bold shadow-lg transition-transform active:scale-95">Add</button>
+      </div>
+    </Modal>
   {/if}
 
   {#if showCustomExerciseModal}
@@ -946,160 +1020,28 @@
   </div> </div> {/if}
 
   {#if showRecapModal}
-    <div class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex justify-center items-end sm:items-center" on:click={() => goto('/')}>
-        <div class="w-full sm:max-w-2xl bg-gray-900 sm:rounded-2xl border-t sm:border border-gray-800 p-6 flex flex-col shadow-2xl animate-fade-in-up max-h-[90vh] overflow-hidden" on:click|stopPropagation>
-            
-            <div class="flex justify-between items-center mb-6 shrink-0">
-                <div>
-                    <h2 class="text-2xl font-bold flex items-center gap-2 text-white">
-                        <BarChart2 size={24} class="text-blue-400"/> Mesocycle Complete!
-                    </h2>
-                    <p class="text-sm text-gray-400 mt-1">Great job finishing the block.</p>
-                </div>
-                <button on:click={() => goto('/')} class="bg-gray-800 p-1 rounded-full text-gray-500 hover:text-white">
-                    <X size={24} />
-                </button>
-            </div>
-
-            {#if recapLoading}
-                <div class="flex-1 flex items-center justify-center p-12 text-gray-500">
-                    Calculating stats...
-                </div>
-            {:else if recapData}
-                <div class="flex-1 overflow-y-auto pr-2 space-y-8">
-                    
-                    <div class="grid grid-cols-1 gap-4">
-                        <div class="bg-gradient-to-br from-gray-800 to-gray-800/50 p-5 rounded-xl border border-gray-700">
-                            <div class="flex items-center gap-3 mb-2">
-                                <div class="bg-blue-900/50 p-2 rounded-lg text-blue-400"><Layers size={20}/></div>
-                                <span class="text-sm text-gray-400 uppercase tracking-widest font-bold">Total Volume</span>
-                            </div>
-                            <div class="text-4xl font-black text-white tracking-tight">
-                                {formatNumber(recapData.totalVolume)} <span class="text-lg text-gray-500 font-medium">lbs</span>
-                            </div>
-                        </div>
-                    </div>
-
-                     <div>
-                        <div class="flex justify-between items-end mb-4">
-                            <h3 class="text-lg font-bold text-white flex items-center gap-2">
-                                <Calendar size={18} class="text-blue-400"/> Weekly Sets
-                            </h3>
-                            
-                            <div class="relative">
-                                <select 
-                                    bind:value={selectedRecapMuscle}
-                                    class="appearance-none bg-gray-800 text-xs text-white border border-gray-600 rounded px-3 py-1 pr-8 focus:outline-none focus:border-blue-500"
-                                >
-                                    <option value="All">All Muscles</option>
-                                    {#each recapData.muscleStats as m}
-                                        <option value={m.name}>{m.name}</option>
-                                    {/each}
-                                </select>
-                                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
-                                    <Filter size={12} />
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="bg-gray-800/30 rounded-xl p-4 border border-gray-700/50 h-48 flex items-end justify-between gap-2">
-                            {#each weeklyChartData.bars as w}
-                                {@const heightPercent = weeklyChartData.max > 0 ? (w.count / weeklyChartData.max) * 100 : 0}
-                                <div class="flex-1 flex flex-col items-center gap-1 group h-full justify-end">
-                                    <div 
-                                        class="w-full bg-blue-600 rounded-t hover:bg-blue-500 transition-all relative group-hover:shadow-[0_0_10px_rgba(37,99,235,0.5)] flex items-start justify-center pt-1" 
-                                        style="height: {heightPercent}%; min-height: 1px;"
-                                    >
-                                        <span class="text-[10px] text-white font-bold hidden sm:block">
-                                            {w.count} Sets
-                                        </span>
-                                        <span class="text-[10px] text-white font-bold sm:hidden">
-                                            {w.count}
-                                        </span>
-                                    </div>
-                                    <span class="text-[10px] text-gray-500 font-mono">W{w.week}</span>
-                                </div>
-                            {/each}
-                        </div>
-                        {#if weeklyChartData.bars.length === 0}
-                            <div class="text-center text-xs text-gray-500 mt-2 italic">No sets found for this selection.</div>
-                        {/if}
-                    </div>
-
-                    <div>
-                        <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                            <Dumbbell size={18} class="text-purple-400"/> Sets per Muscle Group
-                        </h3>
-                        <div class="space-y-3">
-                            {#each recapData.muscleStats as m}
-                                {@const maxVal = recapData.muscleStats[0].count}
-                                {@const widthPercent = (m.count / maxVal) * 100}
-                                <div>
-                                    <div class="flex justify-between text-xs mb-1 font-bold">
-                                        <span class="text-gray-300">{m.name}</span>
-                                        <span class="text-purple-300">{m.count} Sets</span>
-                                    </div>
-                                    <div class="h-3 w-full bg-gray-800 rounded-full overflow-hidden">
-                                        <div class="h-full bg-purple-600 rounded-full" style="width: {widthPercent}%"></div>
-                                    </div>
-                                </div>
-                            {/each}
-                        </div>
-                    </div>
-
-                    {#if recapData.progress && recapData.progress.length > 0}
-                        <div>
-                            <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                                <TrendingUp size={18} class="text-green-400"/> Lift Progress
-                            </h3>
-                            <div class="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
-                                <div class="grid grid-cols-[1fr_80px_80px] gap-2 p-3 border-b border-gray-700 text-xs font-bold text-gray-500 uppercase">
-                                    <span>Exercise</span>
-                                    <span class="text-center">Start</span>
-                                    <span class="text-center">End</span>
-                                </div>
-                                {#each recapData.progress as p}
-                                    <div class="grid grid-cols-[1fr_80px_80px] gap-2 p-3 border-b border-gray-800 last:border-0 items-center hover:bg-gray-800/50 transition-colors">
-                                        <div class="font-medium text-sm text-gray-200">{p.name}</div>
-                                        
-                                        <div class="text-center text-xs">
-                                            <div class="text-gray-400">{p.start.weight} lbs</div>
-                                            <div class="text-gray-600">{p.start.reps} reps</div>
-                                        </div>
-
-                                        <div class="text-center text-xs">
-                                            <div class="font-bold {p.deltaWeight >= 0 ? 'text-green-400' : 'text-red-400'}">
-                                                {p.end.weight} lbs
-                                            </div>
-                                            {#if p.deltaWeight !== 0}
-                                                <div class="text-[10px] {p.deltaWeight > 0 ? 'text-green-500' : 'text-red-500'}">
-                                                    {p.deltaWeight > 0 ? '+' : ''}{p.deltaWeight} lbs
-                                                </div>
-                                            {:else}
-                                                 <div class="text-gray-600">{p.end.reps} reps</div>
-                                                 {#if p.deltaReps !== 0}
-                                                    <div class="text-[10px] {p.deltaReps > 0 ? 'text-green-500' : 'text-red-500'}">
-                                                        {p.deltaReps > 0 ? '+' : ''}{p.deltaReps} reps
-                                                    </div>
-                                                 {/if}
-                                            {/if}
-                                        </div>
-                                    </div>
-                                {/each}
-                            </div>
-                        </div>
-                    {/if}
-
-                    <div class="pt-4">
-                        <button on:click={() => goto('/')} class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl shadow-lg">
-                            Return Home
-                        </button>
-                    </div>
-
-                </div>
-            {/if}
+    <Modal widthClass="w-full sm:max-w-2xl" on:close={() => goto('/')}>
+      <div class="flex justify-between items-center mb-6 shrink-0">
+        <div>
+          <h2 class="text-2xl font-bold flex items-center gap-2 text-white">
+            <BarChart2 size={24} class="text-blue-400"/> Mesocycle Complete!
+          </h2>
+          <p class="text-sm text-gray-400 mt-1">Great job finishing the block.</p>
         </div>
-    </div>
+        </div>
+
+      {#if recapLoading}
+        <div class="flex-1 flex items-center justify-center p-12 text-gray-500">
+          Calculating stats...
+        </div>
+      {:else if recapData}
+        <div class="pt-4">
+            <button on:click={() => goto('/')} class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl shadow-lg">
+                Return Home
+            </button>
+        </div>
+      {/if}
+    </Modal>
   {/if}
 
 </div>
