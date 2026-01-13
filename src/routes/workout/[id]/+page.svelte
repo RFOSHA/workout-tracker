@@ -4,13 +4,18 @@
   import { goto } from "$app/navigation";
   import { onMount, onDestroy } from "svelte";
   // 👇 Import Generic Modal
-  import Modal from "../../../../src/components/common/Modal.svelte" 
+  import Modal from "$lib/components/common/Modal.svelte";
   import { 
     CheckCircle, Zap, Trash2, CornerDownRight, CirclePlus, MoreVertical, 
     History, X, TrendingUp, Search, Plus, 
     BarChart2, Layers, Dumbbell, Calendar, Filter,
     StickyNote, ArrowUp, ArrowDown // 👈 Added Arrows
   } from "lucide-svelte";
+
+  //Functions
+  import { getWeeklyChartData } from "$lib/utils/getWeeklyChartData";
+  import { getWorkoutData, updateExerciseSets } from "$lib/utils/workoutLogic";
+  
 
   const workoutId = $page.params.id;
 
@@ -63,19 +68,31 @@
 
   $: weeklyChartData = getWeeklyChartData(recapData, selectedRecapMuscle);
 
-  function getWeeklyChartData(data: any, filter: string) {
-    if (!data || !data.weeklyBreakdown || data.weeklyBreakdown.length === 0) return { bars: [], max: 10 };
-    const bars = data.weeklyBreakdown.map((w: any) => {
-        let count = 0;
-        if (filter === "All") {
-            count = w.total;
-        } else {
-            count = w.muscles[filter] || 0;
-        }
-        return { week: w.week, count };
-    });
-    const max = Math.max(...bars.map((b: any) => b.count)) || 10;
-    return { bars, max };
+  // function getWeeklyChartData(data: any, filter: string) {
+  //   if (!data || !data.weeklyBreakdown || data.weeklyBreakdown.length === 0) return { bars: [], max: 10 };
+  //   const bars = data.weeklyBreakdown.map((w: any) => {
+  //       let count = 0;
+  //       if (filter === "All") {
+  //           count = w.total;
+  //       } else {
+  //           count = w.muscles[filter] || 0;
+  //       }
+  //       return { week: w.week, count };
+  //   });
+  //   const max = Math.max(...bars.map((b: any) => b.count)) || 10;
+  //   return { bars, max };
+  // }
+
+  async function loadWorkoutData() {
+    // Pass the supabase client and ID to the utility
+    const result = await getWorkoutData(supabase, workoutId);
+    
+    if (result) {
+        workout = result.workout;
+        exercises = result.exercises;
+    }
+    
+    loading = false;
   }
 
   function formatNumber(num: number) {
@@ -101,153 +118,143 @@
     if (data) exerciseLibrary = data;
   }
 
-  async function loadWorkoutData() {
-    const { data: wData } = await supabase.from('workouts').select('*').eq('id', workoutId).single();
-    if (!wData) { loading = false; return; }
-    workout = wData;
-    if (!workout.started_at) {
-      await supabase.from('workouts').update({ started_at: new Date().toISOString() }).eq('id', workoutId);
-    }
+  // async function loadWorkoutData() {
+  //   const { data: wData } = await supabase.from('workouts').select('*').eq('id', workoutId).single();
+  //   if (!wData) { loading = false; return; }
+  //   workout = wData;
+  //   if (!workout.started_at) {
+  //     await supabase.from('workouts').update({ started_at: new Date().toISOString() }).eq('id', workoutId);
+  //   }
 
-    // 👇 UPDATED: Sort by sort_order first
-    const { data: exData } = await supabase
-        .from('workout_exercises')
-        .select('*')
-        .eq('workout_id', workoutId)
-        .order('sort_order', { ascending: true })
-        .order('id', { ascending: true });
+  //   // 👇 UPDATED: Sort by sort_order first
+  //   const { data: exData } = await supabase
+  //       .from('workout_exercises')
+  //       .select('*')
+  //       .eq('workout_id', workoutId)
+  //       .order('sort_order', { ascending: true })
+  //       .order('id', { ascending: true });
 
-    if (exData) {
-        const exerciseNames = exData.map((e: any) => e.exercise_name || "");
-        const historyMap = await getPreviousWorkouts(exerciseNames, workoutId);
-        const mesoNotesMap = await getMesocycleNotes(exerciseNames, workout.mesocycle_id);
+  //   if (exData) {
+  //       const exerciseNames = exData.map((e: any) => e.exercise_name || "");
+  //       const historyMap = await getPreviousWorkouts(exerciseNames, workoutId);
+  //       const mesoNotesMap = await getMesocycleNotes(exerciseNames, workout.mesocycle_id);
 
-        exercises = exData.map(ex => {
-            let currentResults = ex.set_results ? [...ex.set_results] : []; 
-            const targetCount = ex.target_sets || 0;
+  //       exercises = exData.map(ex => {
+  //           let currentResults = ex.set_results ? [...ex.set_results] : []; 
+  //           const targetCount = ex.target_sets || 0;
 
-            while (currentResults.length < targetCount) {
-                currentResults.push({ weight: null, reps: null, dropsets: [] });
-            }
+  //           while (currentResults.length < targetCount) {
+  //               currentResults.push({ weight: null, reps: null, dropsets: [] });
+  //           }
 
-            const prevData = historyMap[ex.exercise_name];
-            const prevStats = prevData?.set_results;
+  //           const prevData = historyMap[ex.exercise_name];
+  //           const prevStats = prevData?.set_results;
             
-            let currentNoteText = "";
-            if (ex.notes && typeof ex.notes === 'object') {
-                currentNoteText = ex.notes.text || "";
-            }
+  //           let currentNoteText = "";
+  //           if (ex.notes && typeof ex.notes === 'object') {
+  //               currentNoteText = ex.notes.text || "";
+  //           }
 
-            currentResults = currentResults.map((item, idx) => {
-                if (!item || typeof item !== 'object') item = { weight: null, reps: null, dropsets: [] };
-                if (!item.dropsets) item.dropsets = [];
+  //           currentResults = currentResults.map((item, idx) => {
+  //               if (!item || typeof item !== 'object') item = { weight: null, reps: null, dropsets: [] };
+  //               if (!item.dropsets) item.dropsets = [];
 
-                if (prevStats && prevStats[idx]) {
-                    const prevSet = prevStats[idx];
-                    const suggestion = calculateNextStep(prevSet.weight, prevSet.reps, Number(workout.week_number));
+  //               if (prevStats && prevStats[idx]) {
+  //                   const prevSet = prevStats[idx];
+  //                   const suggestion = calculateNextStep(prevSet.weight, prevSet.reps, Number(workout.week_number));
                     
-                    item.suggestedWeight = suggestion.weight;
-                    item.suggestedReps = suggestion.reps;
+  //                   item.suggestedWeight = suggestion.weight;
+  //                   item.suggestedReps = suggestion.reps;
                     
-                    if (item.target_weight) item.suggestedWeight = item.target_weight;
-                    if (item.target_reps) item.suggestedReps = item.target_reps;
+  //                   if (item.target_weight) item.suggestedWeight = item.target_weight;
+  //                   if (item.target_reps) item.suggestedReps = item.target_reps;
                     
-                    if (item.suggestedWeight !== null || item.suggestedReps !== null) {
-                        item._hasSuggestion = true;
-                    }
-                }
-                return item;
-            });
+  //                   if (item.suggestedWeight !== null || item.suggestedReps !== null) {
+  //                       item._hasSuggestion = true;
+  //                   }
+  //               }
+  //               return item;
+  //           });
 
-            return { 
-              ...ex, 
-              set_results: currentResults, 
-              currentNote: currentNoteText,
-              noteHistory: mesoNotesMap[ex.exercise_name] || [],
-              showNotes: !!currentNoteText
-            };
-        });
-    }
-    loading = false;
-  }
+  //           return { 
+  //             ...ex, 
+  //             set_results: currentResults, 
+  //             currentNote: currentNoteText,
+  //             noteHistory: mesoNotesMap[ex.exercise_name] || [],
+  //             showNotes: !!currentNoteText
+  //           };
+  //       });
+  //   }
+  //   loading = false;
+  // }
 
   // ... (getMesocycleNotes, getPreviousWorkouts, calculateNextStep logic remains same) ...
-  async function getMesocycleNotes(names: string[], mesoId: string) {
-    if (!names.length || !mesoId) return {};
-    const { data: workoutsInMeso } = await supabase.from('workouts').select('id, week_number').eq('mesocycle_id', mesoId).order('week_number', { ascending: true });
-    if (!workoutsInMeso) return {};
+  // async function getMesocycleNotes(names: string[], mesoId: string) {
+  //   if (!names.length || !mesoId) return {};
+  //   const { data: workoutsInMeso } = await supabase.from('workouts').select('id, week_number').eq('mesocycle_id', mesoId).order('week_number', { ascending: true });
+  //   if (!workoutsInMeso) return {};
     
-    const workoutIdMap = new Map(workoutsInMeso.map(w => [w.id, w.week_number]));
-    const ids = workoutsInMeso.map(w => w.id);
-    const { data: noteRows } = await supabase.from('workout_exercises').select('exercise_name, notes, workout_id').in('exercise_name', names).in('workout_id', ids).not('notes', 'is', null);
+  //   const workoutIdMap = new Map(workoutsInMeso.map(w => [w.id, w.week_number]));
+  //   const ids = workoutsInMeso.map(w => w.id);
+  //   const { data: noteRows } = await supabase.from('workout_exercises').select('exercise_name, notes, workout_id').in('exercise_name', names).in('workout_id', ids).not('notes', 'is', null);
 
-    const map: Record<string, any[]> = {};
-    noteRows?.forEach((row: any) => {
-        if (!map[row.exercise_name]) map[row.exercise_name] = [];
-        let noteText = "";
-        let noteDate = "";
-        if (row.notes && typeof row.notes === 'object') {
-            noteText = row.notes.text;
-            noteDate = row.notes.date;
-        }
-        if (noteText && row.workout_id !== workoutId) { 
-             map[row.exercise_name].push({
-                week: workoutIdMap.get(row.workout_id),
-                text: noteText,
-                date: noteDate
-             });
-        }
-    });
-    for (const key in map) { map[key].sort((a, b) => (a.date || 0) - (b.date || 0)); }
-    return map;
-  }
+  //   const map: Record<string, any[]> = {};
+  //   noteRows?.forEach((row: any) => {
+  //       if (!map[row.exercise_name]) map[row.exercise_name] = [];
+  //       let noteText = "";
+  //       let noteDate = "";
+  //       if (row.notes && typeof row.notes === 'object') {
+  //           noteText = row.notes.text;
+  //           noteDate = row.notes.date;
+  //       }
+  //       if (noteText && row.workout_id !== workoutId) { 
+  //            map[row.exercise_name].push({
+  //               week: workoutIdMap.get(row.workout_id),
+  //               text: noteText,
+  //               date: noteDate
+  //            });
+  //       }
+  //   });
+  //   for (const key in map) { map[key].sort((a, b) => (a.date || 0) - (b.date || 0)); }
+  //   return map;
+  // }
 
-  async function getPreviousWorkouts(names: string[], currentId: string) {
-    if (names.length === 0) return {};
-    const { data } = await supabase.from('workout_exercises').select(`exercise_name, set_results, workouts!inner ( completed_at )`).in('exercise_name', names).neq('workout_id', currentId).not('workouts.completed_at', 'is', null).order('id', { ascending: false });
-    if (!data) return {};
-    const historyMap: Record<string, any> = {};
-    data.forEach((row: any) => {
-        if (!historyMap[row.exercise_name]) {
-            historyMap[row.exercise_name] = { set_results: row.set_results };
-        }
-    });
-    return historyMap;
-  }
+  // async function getPreviousWorkouts(names: string[], currentId: string) {
+  //   if (names.length === 0) return {};
+  //   const { data } = await supabase.from('workout_exercises').select(`exercise_name, set_results, workouts!inner ( completed_at )`).in('exercise_name', names).neq('workout_id', currentId).not('workouts.completed_at', 'is', null).order('id', { ascending: false });
+  //   if (!data) return {};
+  //   const historyMap: Record<string, any> = {};
+  //   data.forEach((row: any) => {
+  //       if (!historyMap[row.exercise_name]) {
+  //           historyMap[row.exercise_name] = { set_results: row.set_results };
+  //       }
+  //   });
+  //   return historyMap;
+  // }
 
-  function calculateNextStep(prevWeight: number | null, prevReps: number | null, currentWeek: number) {
-    if (!currentWeek || currentWeek <= 1) return { weight: null, reps: null };
-    let newWeight = prevWeight;
-    let newReps = prevReps;
-    if (newReps !== null && newReps > 0 && currentWeek > 1) newReps = newReps + 1;
-    if (newWeight !== null && newWeight > 0 && currentWeek > 1) {
-        let increase = 0;
-        let rounding = 5;
-        if (newWeight > 100) { increase = newWeight * 0.025; rounding = 5; } 
-        else if (newWeight >= 50) { increase = newWeight * 0.05; rounding = 5; } 
-        else { increase = newWeight * 0.10; rounding = 2.5; }
-        newWeight = Math.round((newWeight + increase) / rounding) * rounding;
-    }
-    return { weight: newWeight, reps: newReps };
-  }
+  // function calculateNextStep(prevWeight: number | null, prevReps: number | null, currentWeek: number) {
+  //   if (!currentWeek || currentWeek <= 1) return { weight: null, reps: null };
+  //   let newWeight = prevWeight;
+  //   let newReps = prevReps;
+  //   if (newReps !== null && newReps > 0 && currentWeek > 1) newReps = newReps + 1;
+  //   if (newWeight !== null && newWeight > 0 && currentWeek > 1) {
+  //       let increase = 0;
+  //       let rounding = 5;
+  //       if (newWeight > 100) { increase = newWeight * 0.025; rounding = 5; } 
+  //       else if (newWeight >= 50) { increase = newWeight * 0.05; rounding = 5; } 
+  //       else { increase = newWeight * 0.10; rounding = 2.5; }
+  //       newWeight = Math.round((newWeight + increase) / rounding) * rounding;
+  //   }
+  //   return { weight: newWeight, reps: newReps };
+  // }
 
   async function saveSetData(exerciseIndex: number) {
     const ex = exercises[exerciseIndex];
     saving = true;
-    const cleanResults = ex.set_results.map((s: any) => {
-        const hitWeight = (s.weight !== null && s.suggestedWeight !== undefined && s.suggestedWeight !== null) ? (s.weight >= s.suggestedWeight) : false;
-        const hitReps = (s.reps !== null && s.suggestedReps !== undefined && s.suggestedReps !== null) ? (s.reps >= s.suggestedReps) : false;
-        return {
-            weight: s.weight,
-            reps: s.reps,
-            dropsets: s.dropsets,
-            target_weight: s.suggestedWeight || null,
-            target_reps: s.suggestedReps || null,
-            hit_weight: hitWeight,
-            hit_reps: hitReps
-        };
-    });
-    const { error } = await supabase.from('workout_exercises').update({ set_results: cleanResults }).eq('id', ex.id);
+
+    // Call the utility function
+    const { error } = await updateExerciseSets(supabase, ex);
+
     if (error) console.error("Auto-save failed:", error);
     saving = false;
   }
@@ -274,22 +281,34 @@
   // 👇 NEW: Move Exercise Logic
   async function moveExercise(index: number, direction: 'up' | 'down') {
     const newIndex = direction === 'up' ? index - 1 : index + 1;
+    
+    // Boundary checks
     if (newIndex < 0 || newIndex >= exercises.length) return;
 
-    // 1. Optimistic Swap
+    // 1. Optimistic UI Update (Swap locally so it feels instant)
     const list = [...exercises];
     [list[index], list[newIndex]] = [list[newIndex], list[index]];
     exercises = list;
     activeMenu = null;
 
-    // 2. Re-index ALL to ensure clean sort_order
-    const updates = list.map((ex, i) => ({
-        id: ex.id,
-        sort_order: i
-    }));
+    // 2. Persist to Database
+    // We update the sort_order for ALL items to match their new index.
+    // Using Promise.all ensures all updates are sent in parallel.
+    const updates = list.map((ex, i) => 
+        supabase
+            .from('workout_exercises')
+            .update({ sort_order: i })
+            .eq('id', ex.id)
+    );
 
-    // 3. Persist
-    await supabase.from('workout_exercises').upsert(updates);
+    const results = await Promise.all(updates);
+    
+    // Check for errors
+    const error = results.find(r => r.error)?.error;
+    if (error) {
+        console.error("Failed to save order:", error);
+        alert("Could not save new order. Please refresh.");
+    }
   }
 
   function toggleNotes(exIndex: number) {

@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { supabase } from "$lib/supabaseClient";
   import { goto } from "$app/navigation";
-  import { ArrowRight, Calendar, Dumbbell, Layers, CheckCircle, Plus, Trash2, TrendingUp, Zap, X } from "lucide-svelte";
+  import { ArrowRight, Calendar, Dumbbell, Layers, CheckCircle, Plus, Trash2, TrendingUp, Zap, X, ShieldAlert, Percent } from "lucide-svelte";
 
   // --- STATE ---
   let step = 1;
@@ -12,7 +12,7 @@
   // Dropdown State
   let activeSearch: { t: number, e: number } | null = null;
 
-  // NEW: Custom Exercise Creation State
+  // Custom Exercise Creation State
   let showCustomExerciseModal = false;
   let customExerciseName = "";
   let customExerciseMuscle = "";
@@ -42,12 +42,25 @@
   // STEP 4
   let exercisesPerType: Record<string, { name: string; startSets: number; endSets: number; isDropset: boolean }[]> = {};
 
+  // STEP 5: DELOAD CONFIG
+  interface DeloadDaySettings {
+    dayIndex: number;
+    workoutName: string;
+    reduceSets: number;   // % reduction (0-100)
+    reduceWeight: number; // % reduction (0-100)
+    reduceReps: number;   // % reduction (0-100)
+  }
+
+  let deloadConfig = {
+    enabled: false,
+    duration: 1, // 1 or 2 weeks
+    weeks: [] as DeloadDaySettings[][] 
+  };
+
   // --- LIFECYCLE ---
   onMount(async () => {
     await fetchExercises();
-    
     window.addEventListener('click', (e) => {
-        // Close dropdown if clicking outside (unless clicking the custom modal)
         const target = e.target as HTMLElement;
         if (target.tagName !== 'INPUT' && !target.closest('.custom-exercise-modal')) {
             activeSearch = null;
@@ -58,55 +71,43 @@
   // --- LOGIC ---
 
   async function fetchExercises() {
-    // RLS policy on server ensures we only get Public + My Private exercises
     const { data } = await supabase
         .from('exercise_library')
         .select('name, muscle_group')
         .order('name');
-    
     if (data) exerciseLibrary = data;
   }
 
-  // NEW: Open the modal to create a custom exercise
   function triggerCustomExercise(name: string, typeIndex: number, exIndex: number) {
     customExerciseName = name;
-    // Smart Default: Pick the first active muscle group for this workout type
     const activeMuscles = selectedGroups[typeIndex];
     customExerciseMuscle = activeMuscles.length > 0 ? activeMuscles[0] : '';
-    
     pendingCustomContext = { t: typeIndex, e: exIndex };
-    activeSearch = null; // Close dropdown
+    activeSearch = null;
     showCustomExerciseModal = true;
   }
 
-  // NEW: Save the custom exercise to DB and select it
   async function saveCustomExercise() {
     if (!customExerciseName || !customExerciseMuscle) return;
-
     try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
-        // 1. Save to DB
         const { error } = await supabase.from('exercise_library').insert({
             name: customExerciseName,
             muscle_group: customExerciseMuscle,
-            user_id: user.id // Mark as private
+            user_id: user.id
         });
-
         if (error) throw error;
 
-        // 2. Update Local Library immediately
         const newEx = { name: customExerciseName, muscle_group: customExerciseMuscle };
         exerciseLibrary = [...exerciseLibrary, newEx].sort((a,b) => a.name.localeCompare(b.name));
 
-        // 3. Select it in the input that triggered this
         if (pendingCustomContext) {
             const { t, e } = pendingCustomContext;
             exercisesPerType[workoutDefinitions[t]][e].name = customExerciseName;
         }
 
-        // 4. Cleanup
         showCustomExerciseModal = false;
         pendingCustomContext = null;
 
@@ -147,7 +148,7 @@
         schedule = Array.from({ length: config.microcycleDays }, (_, i) => ({
             dayIndex: i + 1,
             type: 'rest',
-            workoutName: null
+            workoutName: undefined
         }));
     }
     step = 3;
@@ -160,6 +161,38 @@
         }
     });
     step = 4;
+  }
+
+  function goToStep5() {
+    updateDeloadWeeks();
+    step = 5;
+  }
+
+  // Regenerate deload config structure if duration/schedule changes
+  function updateDeloadWeeks() {
+    const currentWeeks = deloadConfig.weeks;
+    const newWeeks = [];
+
+    for (let w = 0; w < deloadConfig.duration; w++) {
+        const existingWeek = currentWeeks[w] || [];
+        
+        const weekConfig = schedule
+            .filter(day => day.type === 'lift' && day.workoutName)
+            .map(day => {
+                const prevConfig = existingWeek.find(d => d.dayIndex === day.dayIndex);
+                
+                return {
+                    dayIndex: day.dayIndex,
+                    workoutName: day.workoutName!,
+                    reduceSets: prevConfig ? prevConfig.reduceSets : 50, // Default 50%
+                    reduceWeight: prevConfig ? prevConfig.reduceWeight : 0,
+                    reduceReps: prevConfig ? prevConfig.reduceReps : 0
+                };
+            });
+        
+        newWeeks.push(weekConfig);
+    }
+    deloadConfig.weeks = newWeeks;
   }
 
   function addExerciseToType(typeName: string) {
@@ -181,7 +214,7 @@
 
   function selectExercise(typeName: string, exIndex: number, name: string) {
     exercisesPerType[typeName][exIndex].name = name;
-    activeSearch = null; 
+    activeSearch = null;
   }
 
   async function generateMesocycle() {
@@ -190,16 +223,19 @@
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) throw new Error("You must be logged in.");
 
+        const totalWeeks = config.totalCycles + (deloadConfig.enabled ? deloadConfig.duration : 0);
+
+        // 1. Create Mesocycle
         const { data: mesoData, error: mesoError } = await supabase
             .from('mesocycles')
             .insert({
                 user_id: user.id,
                 name: config.mesoName,
                 start_date: config.startDate,
-                end_date: addDays(config.startDate, (config.microcycleDays * config.totalCycles) - 1),
+                end_date: addDays(config.startDate, (config.microcycleDays * totalWeeks) - 1),
                 days_per_week: config.microcycleDays,
-                total_weeks: config.totalCycles,
-                duration_weeks: config.totalCycles
+                total_weeks: totalWeeks,
+                duration_weeks: totalWeeks
             })
             .select()
             .single();
@@ -208,16 +244,16 @@
         const mesoId = mesoData.id;
 
         let workoutsPayload = [];
-        let workoutMeta = []; 
+        let workoutMeta: any[] = [];
         let runningDate = new Date(config.startDate);
 
+        // 2. Build Workouts (Standard Cycles)
         for (let cycle = 1; cycle <= config.totalCycles; cycle++) {
             const totalSteps = Math.max(config.totalCycles - 1, 1);
             const progress = (cycle - 1) / totalSteps; 
 
             for (let day = 0; day < config.microcycleDays; day++) {
                 const dayPlan = schedule[day];
-
                 if (dayPlan.type === 'lift' && dayPlan.workoutName) {
                     workoutsPayload.push({
                         mesocycle_id: mesoId,
@@ -228,39 +264,114 @@
                         day_number: day + 1,
                         completed: false,
                     });
-
                     workoutMeta.push({
                         templateName: dayPlan.workoutName,
-                        progress: progress
+                        progress: progress,
+                        isDeload: false
                     });
                 }
                 runningDate.setDate(runningDate.getDate() + 1);
             }
         }
 
+        // 3. Build Workouts (Deload Cycles)
+        if (deloadConfig.enabled) {
+            for (let d = 0; d < deloadConfig.duration; d++) {
+                const currentWeek = config.totalCycles + d + 1;
+                const weekSettings = deloadConfig.weeks[d]; 
+                
+                for (let day = 0; day < config.microcycleDays; day++) {
+                    const dayPlan = schedule[day];
+                    if (dayPlan.type === 'lift' && dayPlan.workoutName) {
+                        // Fix: use dayPlan.dayIndex to find settings
+                        const daySettings = weekSettings.find(s => s.dayIndex === dayPlan.dayIndex);
+
+                        workoutsPayload.push({
+                            mesocycle_id: mesoId,
+                            user_id: user.id,
+                            name: dayPlan.workoutName + " (Deload)",
+                            scheduled_date: runningDate.toISOString().split('T')[0],
+                            week_number: currentWeek,
+                            day_number: day + 1,
+                            completed: false,
+                        });
+                        
+                        workoutMeta.push({
+                            templateName: dayPlan.workoutName,
+                            progress: 0, 
+                            isDeload: true,
+                            deloadSettings: daySettings
+                        });
+                    }
+                    runningDate.setDate(runningDate.getDate() + 1);
+                }
+            }
+        }
+
         const { data: createdWorkouts, error: workoutError } = await supabase
             .from('workouts')
             .insert(workoutsPayload)
-            .select('id'); 
-
+            .select('id');
         if (workoutError) throw workoutError;
 
         let allExercisesToInsert: any[] = [];
 
+        // 4. Build Exercises
         createdWorkouts.forEach((workout, index) => {
             const meta = workoutMeta[index];
             const template = exercisesPerType[meta.templateName];
 
             if (template && template.length > 0) {
                 template.forEach(ex => {
-                    const setDiff = ex.endSets - ex.startSets;
-                    const calculatedSets = Math.round(ex.startSets + (setDiff * meta.progress));
+                    let calculatedSets;
+                    let noteData = null;
+                    let configData = {}; // New Config Object
+
+                    if (meta.isDeload && meta.deloadSettings) {
+                        const s = meta.deloadSettings;
+                        
+                        // Calculate Sets
+                        if (s.reduceSets > 0) {
+                            const reductionMultiplier = (100 - s.reduceSets) / 100;
+                            calculatedSets = Math.max(1, Math.round(ex.endSets * reductionMultiplier));
+                        } else {
+                            calculatedSets = ex.startSets;
+                        }
+
+                        // Generate Note Text (Visual Only)
+                        let noteParts = [];
+                        if (s.reduceWeight > 0) noteParts.push(`Weight -${s.reduceWeight}%`);
+                        if (s.reduceReps > 0) noteParts.push(`Reps -${s.reduceReps}%`);
+                        
+                        if (noteParts.length > 0) {
+                            noteData = {
+                                text: `📉 DELOAD TARGETS:\n• ${noteParts.join('\n• ')}`,
+                                date: Date.now()
+                            };
+                        }
+
+                        // Store Logic in 'config' column
+                        configData = {
+                            deload: {
+                                reduceWeightPercent: s.reduceWeight,
+                                reduceRepsPercent: s.reduceReps
+                            }
+                        };
+
+                    } else {
+                        // Normal Progression
+                        const setDiff = ex.endSets - ex.startSets;
+                        calculatedSets = Math.round(ex.startSets + (setDiff * meta.progress));
+                    }
+
                     const initialDropsets = ex.isDropset ? [{ weight: null, reps: null }] : [];
 
                     allExercisesToInsert.push({
                         workout_id: workout.id,
                         exercise_name: ex.name,
                         target_sets: calculatedSets,
+                        notes: noteData,   // User-visible text
+                        config: configData, // System logic data
                         set_results: Array(calculatedSets).fill({ 
                             weight: null, 
                             reps: null, 
@@ -277,7 +388,6 @@
         }
 
         goto('/');
-
     } catch (err: any) {
         alert("Error creating plan: " + err.message);
         console.error(err);
@@ -297,9 +407,9 @@
   
   <header class="mb-8">
     <h1 class="text-3xl font-bold">Build Your Plan</h1>
-    <p class="text-gray-400">Step {step} of 4</p>
+    <p class="text-gray-400">Step {step} of 5</p>
     <div class="h-1 w-full bg-gray-800 mt-4 rounded-full overflow-hidden">
-      <div class="h-full bg-blue-500 transition-all duration-300" style="width: {(step/4)*100}%"></div>
+      <div class="h-full bg-blue-500 transition-all duration-300" style="width: {(step/5)*100}%"></div>
     </div>
   </header>
 
@@ -377,7 +487,7 @@
                             <button 
                                 on:click={() => toggleMuscleGroup(i, muscle)}
                                 class="text-xs px-3 py-1.5 rounded-full border transition-all
-                                {selectedGroups[i].includes(muscle) 
+                                  {selectedGroups[i].includes(muscle) 
                                     ? 'bg-blue-600 border-blue-500 text-white' 
                                     : 'bg-gray-900 border-gray-700 text-gray-500 hover:border-gray-500'}"
                             >
@@ -423,7 +533,7 @@
                         <option value={def}>{def}</option>
                     {/each}
                 </select>
-              </div>
+               </div>
             {/each}
           </div>
           <div class="flex gap-4 mt-8">
@@ -532,10 +642,115 @@
 
       <div class="flex gap-4 mt-8">
         <button on:click={() => step = 3} class="px-6 py-4 rounded-xl bg-gray-800 text-gray-400">Back</button>
-        <button on:click={generateMesocycle} disabled={loading} class="flex-1 bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-            {#if loading} Creating Plan... {:else} Finish & Generate <CheckCircle size={20} /> {/if}
+        <button on:click={goToStep5} class="flex-1 bg-purple-600 hover:bg-purple-500 text-white font-bold py-4 rounded-xl flex justify-center items-center gap-2">
+            Deload Settings <ArrowRight size={20} />
         </button>
       </div>
+    </div>
+  {/if}
+
+  {#if step === 5}
+    <div class="max-w-2xl mx-auto animate-fade-in pb-20">
+        <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
+            <ShieldAlert size={20} class="text-amber-400"/> Deload Strategy
+        </h2>
+
+        <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 mb-8">
+            <label class="flex items-center gap-4 cursor-pointer mb-6 border-b border-gray-700 pb-6">
+                <input type="checkbox" bind:checked={deloadConfig.enabled} on:change={updateDeloadWeeks} class="w-6 h-6 rounded bg-gray-900 border-gray-600 text-amber-500 focus:ring-amber-500">
+                <div>
+                    <span class="block font-bold text-white text-lg">Include Deload Phase?</span>
+                    <span class="text-sm text-gray-400">Adds recovery weeks at the end of the mesocycle.</span>
+                </div>
+            </label>
+
+            {#if deloadConfig.enabled}
+                <div class="space-y-8 animate-fade-in">
+                    
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-3">Deload Duration</label>
+                        <div class="flex gap-2">
+                            <button 
+                                on:click={() => { deloadConfig.duration = 1; updateDeloadWeeks(); }}
+                                class="flex-1 py-3 rounded-lg border transition-all {deloadConfig.duration === 1 ? 'bg-amber-600/20 border-amber-500 text-amber-400 font-bold' : 'bg-gray-900 border-gray-700 text-gray-400'}"
+                            >
+                                1 Week
+                            </button>
+                            <button 
+                                on:click={() => { deloadConfig.duration = 2; updateDeloadWeeks(); }}
+                                class="flex-1 py-3 rounded-lg border transition-all {deloadConfig.duration === 2 ? 'bg-amber-600/20 border-amber-500 text-amber-400 font-bold' : 'bg-gray-900 border-gray-700 text-gray-400'}"
+                            >
+                                2 Weeks
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="space-y-6">
+                        {#each deloadConfig.weeks as weekConfig, wIndex}
+                            <div class="bg-gray-900/30 border border-gray-700 rounded-xl overflow-hidden">
+                                <div class="bg-gray-800/50 px-4 py-2 border-b border-gray-700 font-bold text-amber-500 text-sm uppercase tracking-wide">
+                                    Week {wIndex + 1} Settings
+                                </div>
+                                <div class="p-4 space-y-4">
+                                    {#each weekConfig as daySettings}
+                                        <div class="bg-gray-800 p-4 rounded-lg border border-gray-700">
+                                            <div class="flex justify-between items-center mb-3">
+                                                <span class="font-bold text-white">{daySettings.workoutName}</span>
+                                                <span class="text-xs text-gray-500 font-mono">Day {daySettings.dayIndex}</span>
+                                            </div>
+                                            
+                                            <div class="space-y-3">
+                                                <div class="flex justify-between items-center">
+                                                    <label class="text-xs text-gray-400 font-bold uppercase tracking-wider">Sets Reduction</label>
+                                                    <div class="relative w-24">
+                                                        <input 
+                                                            type="number" 
+                                                            bind:value={daySettings.reduceSets} 
+                                                            class="w-full bg-gray-900 border border-gray-600 rounded p-2 pr-6 text-sm text-center focus:border-amber-500 outline-none"
+                                                        />
+                                                        <Percent size={12} class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                                    </div>
+                                                </div>
+                                                <div class="flex justify-between items-center">
+                                                    <label class="text-xs text-gray-400 font-bold uppercase tracking-wider">Weight Reduction</label>
+                                                    <div class="relative w-24">
+                                                        <input 
+                                                            type="number" 
+                                                            bind:value={daySettings.reduceWeight} 
+                                                            class="w-full bg-gray-900 border border-gray-600 rounded p-2 pr-6 text-sm text-center focus:border-amber-500 outline-none"
+                                                        />
+                                                        <Percent size={12} class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                                    </div>
+                                                </div>
+                                                <div class="flex justify-between items-center">
+                                                    <label class="text-xs text-gray-400 font-bold uppercase tracking-wider">Reps Reduction</label>
+                                                    <div class="relative w-24">
+                                                        <input 
+                                                            type="number" 
+                                                            bind:value={daySettings.reduceReps} 
+                                                            class="w-full bg-gray-900 border border-gray-600 rounded p-2 pr-6 text-sm text-center focus:border-amber-500 outline-none"
+                                                        />
+                                                        <Percent size={12} class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    {/each}
+                                </div>
+                            </div>
+                        {/each}
+                    </div>
+
+                </div>
+            {/if}
+        </div>
+
+        <div class="flex gap-4 mt-8">
+            <button on:click={() => step = 4} class="px-6 py-4 rounded-xl bg-gray-800 text-gray-400">Back</button>
+            <button on:click={generateMesocycle} disabled={loading} class="flex-1 bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                {#if loading} Creating Plan... {:else} Finish & Generate <CheckCircle size={20} /> {/if}
+            </button>
+        </div>
     </div>
   {/if}
 
