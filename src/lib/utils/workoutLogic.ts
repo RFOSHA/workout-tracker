@@ -202,9 +202,8 @@ export async function getWorkoutData(supabase: SupabaseClient, workoutId: string
 }
 
 export async function updateExerciseSets(supabase: SupabaseClient, exercise: any) {
-    // Map the UI state to a clean DB object
+    // 1. Clean the results (same as before)
     const cleanResults = exercise.set_results.map((s: any) => {
-        // Calculate hits based on suggestions (if they exist)
         const hitWeight = (s.weight !== null && s.suggestedWeight != null) 
             ? (s.weight >= s.suggestedWeight) 
             : false;
@@ -224,10 +223,14 @@ export async function updateExerciseSets(supabase: SupabaseClient, exercise: any
         };
     });
 
-    // Perform the update
+    // 2. Perform the update
+    // 👇 CRITICAL FIX: We must update 'target_sets' to match the new length!
     return await supabase
         .from('workout_exercises')
-        .update({ set_results: cleanResults })
+        .update({ 
+            set_results: cleanResults,
+            target_sets: cleanResults.length 
+        })
         .eq('id', exercise.id);
 }
 

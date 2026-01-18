@@ -61,6 +61,10 @@
   let recapData: any = null;
   let selectedRecapMuscle = "All";
 
+  let showDeleteSetModal = false;
+  let setToDelete: { exIndex: number, setIndex: number } | null = null;
+  let isDeleting = false; // Prevents conflicts
+
   // --- REACTIVE ---
   $: filteredLibrary = newExerciseSearch.trim().length > 0 
       ? exerciseLibrary.filter(ex => ex.name.toLowerCase().includes(newExerciseSearch.toLowerCase())).slice(0, 10)
@@ -116,6 +120,42 @@
   async function fetchLibrary() {
     const { data } = await supabase.from('exercise_library').select('name, muscle_group').order('name');
     if (data) exerciseLibrary = data;
+  }
+
+  // 1. Open the Modal
+  function promptDeleteSet(exIndex: number, setIndex: number) {
+    // Save which set we want to delete
+    setToDelete = { exIndex, setIndex };
+    showDeleteSetModal = true;
+  }
+
+  // 2. Execute Delete (When confirming in modal)
+  async function confirmDeleteSet() {
+    if (!setToDelete) return;
+    
+    isDeleting = true; // Lock auto-save
+    const { exIndex, setIndex } = setToDelete;
+    const ex = exercises[exIndex];
+
+    try {
+        // Optimistic UI Update: Filter out the specific set
+        ex.set_results = ex.set_results.filter((_: any, idx: number) => idx !== setIndex);
+        exercises = exercises; // Trigger reactivity
+
+        // Database Update
+        const { error } = await updateExerciseSets(supabase, ex);
+        if (error) throw error;
+
+    } catch (error) {
+        console.error("Delete failed:", error);
+        alert("Error deleting set. Please refresh.");
+    } finally {
+        // Cleanup
+        showDeleteSetModal = false;
+        setToDelete = null;
+        // Small delay before unlocking to ensure no stray saves interfere
+        setTimeout(() => { isDeleting = false; }, 500);
+    }
   }
 
   // async function loadWorkoutData() {
@@ -248,16 +288,59 @@
   //   return { weight: newWeight, reps: newReps };
   // }
 
-  async function saveSetData(exerciseIndex: number) {
-    const ex = exercises[exerciseIndex];
-    saving = true;
 
-    // Call the utility function
+  // 1. UPDATED SAVE FUNCTION
+  async function saveSetData(exerciseIndex: number) {
+    // 🛑 STOP if we are currently deleting a set
+    if (isDeleting) return; 
+
+    const ex = exercises[exerciseIndex];
+    // saving = true; (Optional UI spinner)
+
+    // Call your utility function
     const { error } = await updateExerciseSets(supabase, ex);
 
-    if (error) console.error("Auto-save failed:", error);
-    saving = false;
+    if (error) console.error("Auto-save error:", error);
+    // saving = false;
   }
+
+  // 2. UPDATED DELETE FUNCTION
+  async function removeSet(exIndex: number, setIndex: number) {
+    // 🔒 Lock the system
+    isDeleting = true;
+
+    try {
+        const ex = exercises[exIndex];
+
+        // A. Optimistic Update (Update UI instantly)
+        // Use filter to create a clean new array
+        ex.set_results = ex.set_results.filter((_: any, idx: number) => idx !== setIndex);
+        exercises = exercises; // Trigger Svelte reactivity
+
+        // B. Database Update
+        console.log("Deleting set..."); // Debug log
+        const { error } = await updateExerciseSets(supabase, ex);
+
+        if (error) {
+            throw error;
+        } else {
+            console.log("Set deleted successfully");
+        }
+
+    } catch (error: any) {
+        console.error("Delete failed:", error);
+        alert("Could not delete set. Check console for details.");
+        // Optional: reload data to revert UI if it failed
+        // loadWorkoutData(); 
+    } finally {
+        // 🔓 Unlock the system after a short delay to let pending blurs finish
+        setTimeout(() => {
+            isDeleting = false;
+        }, 500);
+    }
+  }
+
+
 
   async function saveNote(exerciseIndex: number) {
     const ex = exercises[exerciseIndex];
@@ -327,11 +410,6 @@
   function addExtraSet(exIndex: number) {
     exercises[exIndex].set_results.push({ weight: null, reps: null, dropsets: [] });
     exercises = exercises; saveSetData(exIndex);
-  }
-  function removeSet(exIndex: number, setIndex: number) {
-    exercises[exIndex].set_results.splice(setIndex, 1);
-    exercises = exercises;
-    saveSetData(exIndex); activeMenu = null; 
   }
   
   function triggerFinish() { showFinishModal = true; }
@@ -669,7 +747,9 @@
                         <button on:click={() => addDropset(exIndex, setIndex)} class="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 flex items-center gap-3 border-b border-gray-700">
                           <Zap size={16} class="text-yellow-400" /> Add Dropset
                         </button>
-                        <button on:click={() => removeSet(exIndex, setIndex)} class="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-gray-700 flex items-center gap-3">
+                        <button 
+                          on:click|preventDefault={() => promptDeleteSet(exIndex, setIndex)} 
+                          class="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-gray-700 flex items-center gap-3">
                           <Trash2 size={16} /> Delete Set
                         </button>
                       </div>
@@ -896,6 +976,36 @@
                 </div>
             </div>
         {/if}
+    </Modal>
+  {/if}
+
+  {#if showDeleteSetModal}
+    <Modal widthClass="max-w-sm" on:close={() => showDeleteSetModal = false}>
+        <div class="text-center p-4">
+            <div class="bg-red-500/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500">
+                <Trash2 size={32} />
+            </div>
+            
+            <h3 class="text-xl font-bold text-white mb-2">Delete Set?</h3>
+            <p class="text-gray-400 text-sm mb-6">
+                Are you sure you want to remove this set? This action cannot be undone.
+            </p>
+            
+            <div class="flex gap-3">
+                <button 
+                    on:click={() => showDeleteSetModal = false}
+                    class="flex-1 py-3 rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-200 font-bold transition-colors"
+                >
+                    Cancel
+                </button>
+                <button 
+                    on:click={confirmDeleteSet}
+                    class="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold shadow-lg shadow-red-900/20 transition-colors"
+                >
+                    Yes, Delete
+                </button>
+            </div>
+        </div>
     </Modal>
   {/if}
 

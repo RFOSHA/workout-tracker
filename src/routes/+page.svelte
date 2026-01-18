@@ -1,4 +1,10 @@
 <script lang="ts">
+  import { fetchLifetimeStats } from "$lib/utils/statsLogic";
+  import Modal from "$lib/components/common/Modal.svelte"; 
+  import { 
+    PlayCircle, Calendar, ChevronRight, Trophy, BarChart2, Layers, 
+    Dumbbell, Activity, Award, X 
+  } from "lucide-svelte"; // Added Icons
   import { onMount } from "svelte";
   import type { Session } from "@supabase/supabase-js";
   import { supabase } from "$lib/supabaseClient";
@@ -8,6 +14,10 @@
   let currentMesocycle: any = null;
   let loadingData = true;
   let nextWorkout: any = null;
+  // --- LIFETIME STATS STATE ---
+  let showStatsModal = false;
+  let statsLoading = false;
+  let lifetimeStats: any = null;
 
   onMount(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -52,6 +62,26 @@
     }
     loadingData = false;
   }
+
+  async function loadLifetimeStats() {
+    if (lifetimeStats) { showStatsModal = true; return; }
+    
+    statsLoading = true;
+    showStatsModal = true;
+    
+    try {
+        lifetimeStats = await fetchLifetimeStats(supabase);
+    } catch (error) {
+        console.error(error);
+        alert("Could not load stats.");
+    } finally {
+        statsLoading = false;
+    }
+  }
+
+  function formatNumber(num: number) {
+    return new Intl.NumberFormat('en-US').format(num);
+  }
 </script>
 
 {#if !session}
@@ -62,6 +92,13 @@
       
       <header class="flex justify-between items-center mb-8 border-b border-gray-700 pb-4">
         <h1 class="text-3xl font-bold text-blue-400">Workout Tracker</h1>
+         <button 
+                on:click={loadLifetimeStats}
+                class="bg-gray-800 p-2 rounded-lg text-yellow-500 hover:text-yellow-400 hover:bg-gray-700 transition-colors border border-gray-700"
+                title="Lifetime Stats"
+            >
+                <Trophy size={18} />
+          </button>
         <button on:click={() => supabase.auth.signOut()} class="text-sm text-gray-400 hover:text-white transition-colors">
           Sign Out
         </button>
@@ -146,3 +183,101 @@
     </div>
   </div>
 {/if}
+
+{#if showStatsModal}
+    <Modal widthClass="w-full sm:max-w-2xl" on:close={() => showStatsModal = false}>
+        <div class="flex justify-between items-center mb-6 shrink-0">
+            <h2 class="text-2xl font-bold flex items-center gap-2 text-white">
+                <Trophy size={24} class="text-yellow-500"/> Lifetime Stats
+            </h2>
+        </div>
+
+        {#if statsLoading}
+            <div class="flex-1 flex items-center justify-center p-12 text-gray-500">
+                Crunching the numbers...
+            </div>
+        {:else if lifetimeStats}
+            <div class="flex-1 overflow-y-auto pr-2 space-y-8">
+                
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                        <div class="flex items-center gap-2 mb-1 text-gray-400 text-xs font-bold uppercase">
+                            <Layers size={14}/> Total Volume
+                        </div>
+                        <div class="text-2xl font-black text-white">
+                            {formatNumber(lifetimeStats.totalVolume)} <span class="text-sm font-medium text-gray-500">lbs</span>
+                        </div>
+                    </div>
+                    <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                        <div class="flex items-center gap-2 mb-1 text-gray-400 text-xs font-bold uppercase">
+                            <Activity size={14}/> Workouts
+                        </div>
+                        <div class="text-2xl font-black text-white">
+                            {lifetimeStats.totalWorkouts}
+                        </div>
+                    </div>
+                    <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                        <div class="flex items-center gap-2 mb-1 text-gray-400 text-xs font-bold uppercase">
+                            <Dumbbell size={14}/> Total Sets
+                        </div>
+                        <div class="text-2xl font-black text-white">
+                            {formatNumber(lifetimeStats.totalSets)}
+                        </div>
+                    </div>
+                    <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                        <div class="flex items-center gap-2 mb-1 text-gray-400 text-xs font-bold uppercase">
+                            <Calendar size={14}/> Days Active
+                        </div>
+                        <div class="text-2xl font-black text-white">
+                            {lifetimeStats.daysActive}
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                        <BarChart2 size={18} class="text-blue-400"/> Muscle Focus
+                    </h3>
+                    <div class="space-y-3">
+                        {#each lifetimeStats.muscleStats as m}
+                            {@const maxVal = lifetimeStats.muscleStats[0].count}
+                            {@const widthPercent = (m.count / maxVal) * 100}
+                            <div>
+                                <div class="flex justify-between text-xs mb-1 font-bold">
+                                    <span class="text-gray-300">{m.name}</span>
+                                    <span class="text-blue-300">{m.count} Sets</span>
+                                </div>
+                                <div class="h-2 w-full bg-gray-800 rounded-full overflow-hidden">
+                                    <div class="h-full bg-blue-600 rounded-full" style="width: {widthPercent}%"></div>
+                                </div>
+                            </div>
+                        {/each}
+                    </div>
+                </div>
+
+                {#if lifetimeStats.prs.length > 0}
+                    <div>
+                        <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                            <Award size={18} class="text-yellow-400"/> Personal Records
+                        </h3>
+                        <div class="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+                            <div class="grid grid-cols-[1fr_80px] gap-2 p-3 border-b border-gray-700 text-xs font-bold text-gray-500 uppercase">
+                                <span>Exercise</span>
+                                <span class="text-right">Max Load</span>
+                            </div>
+                            {#each lifetimeStats.prs as pr}
+                                <div class="grid grid-cols-[1fr_80px] gap-2 p-3 border-b border-gray-800 last:border-0 items-center hover:bg-gray-800/50 transition-colors">
+                                    <div class="font-medium text-sm text-gray-200">{pr.name}</div>
+                                    <div class="text-right text-sm font-bold text-white">
+                                        {pr.weight} <span class="text-xs text-gray-500 font-normal">x{pr.reps}</span>
+                                    </div>
+                                </div>
+                            {/each}
+                        </div>
+                    </div>
+                {/if}
+
+            </div>
+        {/if}
+    </Modal>
+  {/if}
