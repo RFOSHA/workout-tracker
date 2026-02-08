@@ -12,3 +12,16 @@ body {
   color: #f8fafc; /* sleeper-text */
   -webkit-font-smoothing: antialiased;
 }
+
+/* HIDE NUMBER INPUT SPINNERS GLOBALLY */
+@layer base {
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+}

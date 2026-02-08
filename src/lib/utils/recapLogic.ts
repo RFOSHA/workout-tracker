@@ -13,26 +13,47 @@ export function getWeeklyChartData(data: any, filter: string) {
 }
 
 export async function fetchRecapData(supabase: SupabaseClient, mesoId: string) {
-    // 1. Fetch Meso Duration
-    const { data: meso } = await supabase.from('mesocycles').select('duration_weeks').eq('id', mesoId).single();
-    if (!meso) return null;
+    console.log("Fetching recap for Meso ID:", mesoId);
 
-    // 2. Fetch Workouts & IDs
-    const { data: workouts } = await supabase.from('workouts').select('id, week_number').eq('mesocycle_id', mesoId);
-    if (!workouts?.length) return null;
+    // 1. Fetch Meso Duration
+    const { data: meso, error: mesoError } = await supabase
+        .from('mesocycles')
+        .select('duration_weeks')
+        .eq('id', mesoId)
+        .single();
+    
+    if (mesoError || !meso) {
+        console.error("Recap Error: Mesocycle not found", mesoError);
+        return null;
+    }
+
+    // 2. Fetch Workouts
+    const { data: workouts } = await supabase
+        .from('workouts')
+        .select('id, week_number')
+        .eq('mesocycle_id', mesoId);
+
+    if (!workouts || workouts.length === 0) {
+        console.error("Recap Error: No workouts found");
+        return null;
+    }
 
     const workoutIdMap = new Map(workouts.map(w => [w.id, w.week_number]));
     const ids = workouts.map(w => w.id);
 
     // 3. Fetch Exercises
-    const { data: exercises } = await supabase.from('workout_exercises').select('exercise_name, set_results, workout_id').in('workout_id', ids);
+    const { data: exercises } = await supabase
+        .from('workout_exercises')
+        .select('exercise_name, set_results, workout_id')
+        .in('workout_id', ids);
+
     if (!exercises) return null;
 
     // 4. Fetch Library (for Muscle Groups)
     const { data: library } = await supabase.from('exercise_library').select('name, muscle_group');
     const muscleMap = new Map(library?.map(l => [l.name, l.muscle_group]) || []);
 
-    // 5. Perform Calculations (Volume, Counts, Progress)
+    // 5. Perform Calculations
     let totalVolume = 0;
     const muscleCounts: Record<string, number> = {};
     const weeklyDataMap: Record<number, any> = {};
@@ -52,18 +73,20 @@ export async function fetchRecapData(supabase: SupabaseClient, mesoId: string) {
         let maxWeight = 0;
         let maxReps = 0;
 
-        ex.set_results?.forEach((s: any) => {
-            const r = Number(s.reps);
-            const w = Number(s.weight);
-            if (r > 0) {
-                validSets++;
-                if (w > 0) totalVolume += (w * r);
-                if (w > maxWeight || (w === maxWeight && r > maxReps)) {
-                    maxWeight = w;
-                    maxReps = r;
+        if (Array.isArray(ex.set_results)) {
+            ex.set_results.forEach((s: any) => {
+                const r = Number(s.reps);
+                const w = Number(s.weight);
+                if (r > 0) {
+                    validSets++;
+                    if (w > 0) totalVolume += (w * r);
+                    if (w > maxWeight || (w === maxWeight && r > maxReps)) {
+                        maxWeight = w;
+                        maxReps = r;
+                    }
                 }
-            }
-        });
+            });
+        }
 
         if (validSets > 0) {
             muscleCounts[muscle] = (muscleCounts[muscle] || 0) + validSets;
@@ -88,10 +111,20 @@ export async function fetchRecapData(supabase: SupabaseClient, mesoId: string) {
         };
     }).filter(Boolean);
 
+    const sortedMuscles = Object.entries(muscleCounts)
+        .sort(([, a], [, b]) => b - a)
+        .map(([name, count]) => ({ name, count }));
+
+    const weeklyBreakdown = Object.entries(weeklyDataMap)
+        .map(([week, data]) => ({ week: Number(week), ...data }))
+        .sort((a: any, b: any) => a.week - b.week);
+
+    console.log("Recap Generated Successfully");
+
     return {
         totalVolume,
-        muscleStats: Object.entries(muscleCounts).sort(([,a], [,b]) => b - a).map(([name, count]) => ({ name, count })),
-        weeklyBreakdown: Object.entries(weeklyDataMap).map(([week, data]) => ({ week: Number(week), ...data })).sort((a: any, b: any) => a.week - b.week),
+        muscleStats: sortedMuscles,
+        weeklyBreakdown,
         progress
     };
 }
