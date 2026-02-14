@@ -337,7 +337,11 @@
   {/if}
 
   {#if showRecapModal}
-    <RecapModal {recapLoading} {recapData} />
+    <RecapModal 
+        {recapLoading} 
+        {recapData} 
+        isComplete={true} 
+        on:close={() => showRecapModal = false} 
+    />
   {/if}
-
 </div>
