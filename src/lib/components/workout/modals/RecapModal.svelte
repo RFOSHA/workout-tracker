@@ -4,9 +4,14 @@
   // Import missing icons and utility
   import { BarChart2, Layers, Calendar, Filter, Dumbbell, TrendingUp } from "lucide-svelte";
   import { getWeeklyChartData } from "$lib/utils/getWeeklyChartData";
+  import { createEventDispatcher } from "svelte";
+
+  // Initialize dispatcher
+  const dispatch = createEventDispatcher();
 
   export let recapLoading = false;
   export let recapData: any = null;
+  export let isComplete = false;
 
   let selectedRecapMuscle = "All";
 
@@ -18,13 +23,16 @@
   }
 </script>
 
-<Modal widthClass="w-full sm:max-w-2xl" on:close={() => goto('/')}>
+<Modal widthClass="w-full sm:max-w-2xl" on:close={() => dispatch('close')}>  
     <div class="flex justify-between items-center mb-6 shrink-0">
         <div>
             <h2 class="text-2xl font-bold flex items-center gap-2 text-white">
-                <BarChart2 size={24} class="text-blue-400"/> Mesocycle Complete!
+                <BarChart2 size={24} class="text-blue-400"/> 
+                {isComplete ? 'Mesocycle Complete!' : 'Cycle Progress'}
             </h2>
-            <p class="text-sm text-gray-400 mt-1">Great job finishing the block.</p>
+            <p class="text-sm text-gray-400 mt-1">
+                {isComplete ? 'Great job finishing the block.' : "Here is your progress so far."}
+            </p>
         </div>
     </div>
 
