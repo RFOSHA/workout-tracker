@@ -139,3 +139,41 @@ export async function addExerciseToFutureWorkouts(
         await supabase.from('workout_exercises').insert(futurePayload);
     }
 }
+
+export async function fetchExerciseHistory(supabase: SupabaseClient, exerciseName: string, currentWorkoutId: string) {
+    const { data, error } = await supabase
+        .from('workout_exercises')
+        .select(`
+            set_results, 
+            workouts ( 
+                completed_at, 
+                name, 
+                week_number, 
+                scheduled_date, 
+                mesocycles ( name ) 
+            )
+        `)
+        .eq('exercise_name', exerciseName)
+        .neq('workout_id', currentWorkoutId); // Exclude current workout
+
+    if (error) throw error;
+
+    // Filter to only include workouts that have actually been completed
+    const validData = data.filter((item: any) => item.workouts && item.workouts.completed_at);
+    
+    // Format the data for the modal
+    let processed = validData.map((entry: any) => ({ 
+        date: new Date(entry.workouts.completed_at).toLocaleDateString(), 
+        timestamp: new Date(entry.workouts.completed_at).getTime(), 
+        workoutName: entry.workouts.name, 
+        week: entry.workouts.week_number,
+        scheduled: new Date(entry.workouts.scheduled_date).toLocaleDateString(),
+        mesoName: entry.workouts.mesocycles?.name || 'Unknown Cycle',
+        sets: entry.set_results || [] 
+    }));
+
+    // Sort newest to oldest
+    processed.sort((a: any, b: any) => b.timestamp - a.timestamp);
+    
+    return processed;
+}

@@ -49,6 +49,9 @@
   let recapLoading = false;
   let newExerciseSearch = ""; // Passed to Custom Modal
 
+  // Add this variable near the top of your <script> block with your other state
+  let saveTimeouts: Record<string, ReturnType<typeof setTimeout>> = {};
+
   // --- INITIALIZATION ---
   onMount(async () => {
     if (!workoutId) { goto('/'); return; }
@@ -116,14 +119,26 @@
   }
 
   // 2. EXERCISE ACTIONS (Bubbled from ExerciseCard)
-  async function handleSaveSet(e: CustomEvent) {
-      console.log("Saving Set Triggered:", e.detail.exercise); // <--- Add this
-      try {
-          await Actions.updateExerciseSets(supabase, e.detail.exercise);
-      } catch (err) {
-          console.error("Failed to save set:", err);
-          alert("Failed to save set. Check console.");
+  function handleSaveSet(e: CustomEvent) {
+      const exerciseToSave = e.detail.exercise;
+      const exId = exerciseToSave.id;
+
+      // Clear the previous timeout if the user is still typing or tapping around
+      if (saveTimeouts[exId]) {
+          clearTimeout(saveTimeouts[exId]);
       }
+
+      // Wait 500ms after the user stops typing/tapping before saving to the database
+      saveTimeouts[exId] = setTimeout(async () => {
+          try {
+              await Actions.updateExerciseSets(supabase, exerciseToSave);
+              console.log("Saved successfully!"); 
+          } catch (err) {
+              console.error("Failed to save set:", err);
+              // Only alert if a legitimate error occurs, not a race condition
+              alert("Failed to save set. Check console.");
+          }
+      }, 500);
   }
 
   async function handleSaveNote(e: CustomEvent) {
@@ -181,13 +196,20 @@
   }
 
   // 4. HISTORY & RECAP
-  async function handleLoadHistory(e: CustomEvent) {
+    async function handleLoadHistory(e: CustomEvent) {
       historyExerciseName = e.detail.name;
       showHistoryModal = true;
       historyLoading = true;
-      // ... (Keep existing fetch logic here or move to utils/historyLogic.ts if desired)
-      // For brevity, assuming logic exists or is inlined similarly to before
-      historyLoading = false;
+      
+      try {
+          // Fetch data using the action we just created
+          historyData = await Actions.fetchExerciseHistory(supabase, historyExerciseName, workoutId);
+      } catch (err) {
+          console.error("Failed to fetch history:", err);
+          alert("Could not load exercise history.");
+      } finally {
+          historyLoading = false;
+      }
   }
 
   async function handleFinish() {
@@ -226,6 +248,7 @@
           goto('/');
       }
   }
+
 </script>
 
 <div class="min-h-screen bg-gray-900 text-white pb-32">
