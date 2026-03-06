@@ -8,16 +8,19 @@
   import { page } from '$app/stores';
 
   let session: Session | null = null;
-  let activeWorkoutId: number | null = null; // 👈 Track this
+  let activeWorkoutId: number | null = null;
+  let authInitialized = false;
 
   onMount(() => {
     supabase.auth.getSession().then(({ data }) => {
       session = data.session;
+      authInitialized = true;
       if (session) checkActiveWorkout(); // Check on load
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, _session) => {
       session = _session;
+      authInitialized = true;
       if (_session) checkActiveWorkout(); 
       else goto('/');
     });
@@ -25,7 +28,7 @@
     return () => subscription.unsubscribe();
   });
 
-  // 👇 New Helper to find where the button should link
+  // New Helper to find where the button should link
   async function checkActiveWorkout() {
     // Find the next incomplete workout
     // We order by week/day to find the "current" one

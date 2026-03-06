@@ -14,6 +14,7 @@
   import MesoHistoryModal from "$lib/components/mesocycle/modals/MesoHistoryModal.svelte";
   import CalendarWeek from "$lib/components/mesocycle/CalendarWeek.svelte";
   import AlertModal from "$lib/components/common/AlertModal.svelte";
+  import DeleteConfirmationModal from "$lib/components/workout/modals/DeleteConfirmationModal.svelte";
 
   // --- STATE ---
   let loading = true;
@@ -26,6 +27,7 @@
   let showRecapModal = false;
   let showEditPlanModal = false;
   let alertMessage = "";
+  let deleteMesoConfig: { id: string } | null = null;
 
   // Modals Data
   let recapLoading = false;
@@ -102,21 +104,29 @@
     }
   }
 
-  async function deleteMesocycle(e: CustomEvent) {
-    const { id } = e.detail;
-    if (!confirm("Are you sure? This will permanently delete this plan and all its workout history.")) return;
-    
-    try {
-        await deleteMesocycleFromDB(supabase, id);
-        allMesocycles = allMesocycles.filter(m => m.id !== id);
-        
-        if (mesocycle && mesocycle.id === id) {
-            if (allMesocycles.length > 0) loadMesocycle(allMesocycles[0]);
-            else { mesocycle = null; calendar = []; showHistoryModal = false; }
-        }
-    } catch (err: any) {
-        alert("Error: " + err.message);
-    }
+  function promptDeleteMeso(e: CustomEvent) {
+      // Temporarily store the ID and trigger the modal to open
+      deleteMesoConfig = { id: e.detail.id };
+  }
+
+  async function confirmDeleteMeso() {
+      if (!deleteMesoConfig) return;
+      const id = deleteMesoConfig.id;
+      
+      try {
+          await deleteMesocycleFromDB(supabase, id);
+          allMesocycles = allMesocycles.filter(m => m.id !== id);
+          
+          if (mesocycle && mesocycle.id === id) {
+              if (allMesocycles.length > 0) loadMesocycle(allMesocycles[0]);
+              else { mesocycle = null; calendar = []; showHistoryModal = false; }
+          }
+      } catch (err: any) {
+          // Send errors to the stylized alert modal instead of native alert
+          alertMessage = "Error: " + err.message; 
+      } finally {
+          deleteMesoConfig = null; // Close the modal
+      }
   }
 
   async function loadRecap() {
@@ -200,7 +210,7 @@
         currentMesocycleId={mesocycle?.id} 
         on:close={() => showHistoryModal = false}
         on:select={(e) => loadMesocycle(e.detail)}
-        on:delete={deleteMesocycle}
+        on:delete={promptDeleteMeso}
     />
   {/if}
   
@@ -218,6 +228,14 @@
         title="Can't Edit Plan" 
         message={alertMessage} 
         on:close={() => alertMessage = ""} 
+    />
+  {/if}
+
+  {#if deleteMesoConfig}
+    <DeleteConfirmationModal 
+        type="plan" 
+        on:close={() => deleteMesoConfig = null} 
+        on:confirm={confirmDeleteMeso} 
     />
   {/if}
 
