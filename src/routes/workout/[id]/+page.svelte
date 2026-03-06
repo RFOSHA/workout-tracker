@@ -136,7 +136,6 @@
           } catch (err) {
               console.error("Failed to save set:", err);
               // Only alert if a legitimate error occurs, not a race condition
-              alert("Failed to save set. Check console.");
           }
       }, 500);
   }

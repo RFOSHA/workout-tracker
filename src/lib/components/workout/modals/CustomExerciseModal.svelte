@@ -2,6 +2,7 @@
   import Modal from "$lib/components/common/Modal.svelte";
   import { createEventDispatcher } from "svelte";
   import { supabase } from "$lib/supabaseClient";
+  import { MUSCLE_GROUPS } from "$lib/constants"
 
   export let initialName = "";
 
@@ -10,11 +11,6 @@
   let saving = false;
 
   const dispatch = createEventDispatcher();
-
-  const MUSCLE_GROUPS = [
-    'Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 
-    'Quads', 'Hamstrings', 'Calves', 'Abs', 'Forearms', 'Glutes'
-  ];
 
   async function handleSave() {
     if (!name || !selectedMuscle) return;
@@ -89,9 +85,3 @@
         </button>
     </div>
 </Modal>
-
-<style>
-    .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-    .custom-scrollbar::-webkit-scrollbar-track { background: #111827; }
-    .custom-scrollbar::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
-</style>

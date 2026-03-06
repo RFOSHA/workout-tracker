@@ -59,9 +59,3 @@
         </a>
     </div>
 </Modal>
-
-<style>
-    .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-    .custom-scrollbar::-webkit-scrollbar-track { background: #111827; }
-    .custom-scrollbar::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
-</style>

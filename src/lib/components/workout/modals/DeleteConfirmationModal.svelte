@@ -3,7 +3,7 @@
   import { Trash2 } from "lucide-svelte";
   import { createEventDispatcher } from "svelte";
 
-  export let type: 'set' | 'exercise';
+  export let type: 'set' | 'exercise' | 'plan';
 
   const dispatch = createEventDispatcher();
 </script>

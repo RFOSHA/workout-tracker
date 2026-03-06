@@ -59,7 +59,8 @@ export async function createMesocyclePlan(
                 workoutMeta.push({
                     templateName: dayPlan.workoutName,
                     progress: progress,
-                    isDeload: false
+                    isDeload: false,
+                    weekNumber: cycle
                 });
             }
             runningDate.setDate(runningDate.getDate() + 1);
@@ -89,7 +90,8 @@ export async function createMesocyclePlan(
                         templateName: dayPlan.workoutName,
                         progress: 0, 
                         isDeload: true,
-                        deloadSettings: daySettings
+                        deloadSettings: daySettings,
+                        weekNumber: currentWeek
                     });
                 }
                 runningDate.setDate(runningDate.getDate() + 1);
@@ -115,6 +117,12 @@ export async function createMesocyclePlan(
 
                 if (meta.isDeload && meta.deloadSettings) {
                     const s = meta.deloadSettings;
+                    let baseSets = ex.endSets;
+                    if (ex.progressionType === 'manual' && ex.manualSets && ex.manualSets.length > 0) {
+                        // If manual, base the deload off their final lifting week
+                        baseSets = ex.manualSets[ex.manualSets.length - 1];
+                    }
+
                     if (s.reduceSets > 0) {
                         const reductionMultiplier = (100 - s.reduceSets) / 100;
                         calculatedSets = Math.max(1, Math.round(ex.endSets * reductionMultiplier));
@@ -131,8 +139,14 @@ export async function createMesocyclePlan(
                     configData = { deload: { reduceWeightPercent: s.reduceWeight, reduceRepsPercent: s.reduceReps } };
 
                 } else {
-                    const setDiff = ex.endSets - ex.startSets;
-                    calculatedSets = Math.round(ex.startSets + (setDiff * meta.progress));
+                    if (ex.progressionType === 'manual' && ex.manualSets) {
+                        // Manual Mode: Pull directly from their array (adjust for 0-index)
+                        calculatedSets = ex.manualSets[meta.weekNumber - 1];
+                    } else {
+                        // Auto Linear Mode
+                        const setDiff = ex.endSets - ex.startSets;
+                        calculatedSets = Math.round(ex.startSets + (setDiff * meta.progress));
+                    }
                 }
 
                 const initialDropsets = ex.isDropset ? [{ weight: null, reps: null }] : [];

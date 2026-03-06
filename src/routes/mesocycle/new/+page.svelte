@@ -8,6 +8,7 @@
   import CustomExerciseModal from "$lib/components/workout/modals/CustomExerciseModal.svelte";
   import WorkoutTypeBuilder from "$lib/components/mesocycle/wizard/WorkoutTypeBuilder.svelte";
   import { createMesocyclePlan } from "$lib/actions/generateMesocycle";
+  import { MUSCLE_GROUPS } from "$lib/constants"
 
   // --- STATE ---
   let step = 1;
@@ -19,14 +20,22 @@
   let customExerciseName = "";
   let pendingCustomContext: { t: number, e: number } | null = null;
 
-  const MUSCLE_GROUPS = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Quads', 'Hamstrings', 'Calves', 'Abs', 'Forearms', 'Glutes'];
+  
 
   // Step States
   let config = { microcycleDays: 7, liftingDays: 5, restDays: 2, workoutTypes: 3, totalCycles: 6, startDate: new Date().toISOString().split('T')[0], mesoName: "" };
   let workoutDefinitions: string[] = [];
   let selectedGroups: string[][] = [];
   let schedule: { dayIndex: number; type: 'rest' | 'lift'; workoutName?: string }[] = [];
-  let exercisesPerType: Record<string, { name: string; startSets: number; endSets: number; isDropset: boolean }[]> = {};
+  // Update typing to support new properties
+  let exercisesPerType: Record<string, { 
+      name: string; 
+      startSets: number; 
+      endSets: number; 
+      isDropset: boolean; 
+      progressionType: 'linear' | 'manual'; 
+      manualSets: number[] 
+  }[]> = {};
   
   interface DeloadDaySettings { dayIndex: number; workoutName: string; reduceSets: number; reduceWeight: number; reduceReps: number; }
   let deloadConfig = { enabled: false, duration: 1, weeks: [] as DeloadDaySettings[][] };
@@ -226,7 +235,7 @@
              bind:exercises={exercisesPerType[typeName]}
              {baseLibrary}
              bind:activeSearch
-             on:triggerCustom={(e) => {
+             totalCycles={config.totalCycles} on:triggerCustom={(e) => {
                  customExerciseName = e.detail.name;
                  pendingCustomContext = { t: e.detail.t, e: e.detail.e };
                  showCustomExerciseModal = true;
