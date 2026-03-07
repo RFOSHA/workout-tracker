@@ -2,19 +2,25 @@
   import { onMount } from "svelte";
   import { supabase } from "$lib/supabaseClient";
   import { goto } from "$app/navigation";
-  import { ArrowRight, Calendar, Dumbbell, Layers, CheckCircle, TrendingUp, ShieldAlert, Percent } from "lucide-svelte";
+  import { ArrowRight, Calendar, Dumbbell, Layers, CheckCircle, TrendingUp, ShieldAlert, Percent, Info } from "lucide-svelte";
   
   // Imports
   import CustomExerciseModal from "$lib/components/workout/modals/CustomExerciseModal.svelte";
   import WorkoutTypeBuilder from "$lib/components/mesocycle/wizard/WorkoutTypeBuilder.svelte";
   import { createMesocyclePlan } from "$lib/actions/generateMesocycle";
   import { MUSCLE_GROUPS } from "$lib/constants"
+  import AlertModal from "$lib/components/common/AlertModal.svelte";
+  import Modal from "$lib/components/common/Modal.svelte";
 
   // --- STATE ---
   let step = 1;
   let loading = false;
   let exerciseLibrary: any[] = [];
   let activeSearch: { t: number, e: number } | null = null;
+
+  let alertTitle = "Notice";
+  let alertMessage = "";
+  let showInfoModal = false;
   
   let showCustomExerciseModal = false;
   let customExerciseName = "";
@@ -53,6 +59,12 @@
   });
 
   // --- LOGIC ---
+  // Helper to trigger alerts
+  function showAlert(title: string, message: string) {
+      alertTitle = title;
+      alertMessage = message;
+  }
+
   function handleCustomCreated(e: CustomEvent) {
       const { name, muscle } = e.detail;
       exerciseLibrary = [...exerciseLibrary, { name, muscle_group: muscle }].sort((a,b) => a.name.localeCompare(b.name));
@@ -66,9 +78,18 @@
   }
 
   function goToStep2() {
-    if ((config.liftingDays + config.restDays) !== config.microcycleDays) return alert(`Math error: Lifting (${config.liftingDays}) + Rest (${config.restDays}) must equal Cycle (${config.microcycleDays}).`);
+    // Updated to use showAlert
+    if ((config.liftingDays + config.restDays) !== config.microcycleDays) {
+        return showAlert("Math Error", `Lifting (${config.liftingDays}) + Rest (${config.restDays}) must equal Cycle (${config.microcycleDays}).`);
+    }
+    
+    if (config.workoutTypes > config.liftingDays) {
+        return showAlert("Invalid Setup", "Unique Types cannot exceed the number of Lifting Days.");
+    }
+    
     if (workoutDefinitions.length !== config.workoutTypes) workoutDefinitions = Array(config.workoutTypes).fill("");
     if (selectedGroups.length !== config.workoutTypes) selectedGroups = Array.from({ length: config.workoutTypes }, () => []);
+    
     step = 2;
   }
 
@@ -131,7 +152,7 @@
     </div>
   </header>
 
-  {#if step === 1}
+{#if step === 1}
     <div class="max-w-xl mx-auto space-y-6 animate-fade-in">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -145,7 +166,13 @@
           </div>
           <hr class="border-gray-800" />
           <div class="space-y-4">
-            <h3 class="font-bold text-lg flex items-center gap-2"><Calendar size={20} class="text-blue-400"/> Microcycle Setup</h3>
+            <div class="flex items-center justify-between">
+                <h3 class="font-bold text-lg flex items-center gap-2"><Calendar size={20} class="text-blue-400"/> Microcycle Setup</h3>
+                <button on:click={() => showInfoModal = true} class="text-gray-400 hover:text-blue-400 transition-colors" title="What do these mean?">
+                    <Info size={20} />
+                </button>
+            </div>
+            
             <div class="grid grid-cols-2 gap-4">
                 <div><label class="block text-xs text-gray-400 mb-1">Days in a "Week"</label><input type="number" bind:value={config.microcycleDays} class="w-full bg-gray-800 p-3 rounded border border-gray-700" /></div>
                 <div><label class="block text-xs text-gray-400 mb-1">Total Cycles</label><input type="number" bind:value={config.totalCycles} class="w-full bg-gray-800 p-3 rounded border border-gray-700" /></div>
@@ -232,10 +259,11 @@
              {typeName}
              typeIndex={i}
              {activeMuscles}
-             bind:exercises={exercisesPerType[typeName]}
+             allMuscleGroups={MUSCLE_GROUPS} bind:exercises={exercisesPerType[typeName]}
              {baseLibrary}
              bind:activeSearch
-             totalCycles={config.totalCycles} on:triggerCustom={(e) => {
+             totalCycles={config.totalCycles}
+             on:toggleMuscle={(e) => toggleMuscleGroup(i, e.detail.muscle)} on:triggerCustom={(e) => {
                  customExerciseName = e.detail.name;
                  pendingCustomContext = { t: e.detail.t, e: e.detail.e };
                  showCustomExerciseModal = true;
@@ -329,4 +357,32 @@
           />
       </div>
   {/if}
+  
+  {#if showInfoModal}
+    <Modal widthClass="max-w-md" on:close={() => showInfoModal = false}>
+        <div class="p-2">
+            <h3 class="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                <Info size={24} class="text-blue-400"/> Microcycle Terminology
+            </h3>
+            <div class="space-y-5 text-sm text-gray-300 leading-relaxed">
+                <p><strong class="text-white block mb-1">Days in a "Week"</strong> The length of a single microcycle before your schedule repeats. Usually 7 days, but can be 8 or 9 for rolling splits.</p>
+                <p><strong class="text-white block mb-1">Lifting Days</strong> How many days in the cycle you will actively perform workouts.</p>
+                <p><strong class="text-white block mb-1">Rest Days</strong> How many days in the cycle you will dedicate to recovery.</p>
+                <p><strong class="text-white block mb-1">Unique Types</strong> The distinct number of workouts in your plan (e.g., a Push/Pull/Legs split has 3 unique types). This cannot exceed your Lifting Days.</p>
+            </div>
+            <button on:click={() => showInfoModal = false} class="w-full mt-8 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-colors">
+                Got it
+            </button>
+        </div>
+    </Modal>
+  {/if}
+
+  {#if alertMessage}
+    <AlertModal 
+        title={alertTitle} 
+        message={alertMessage} 
+        on:close={() => alertMessage = ""} 
+    />
+  {/if}
+
 </div>
