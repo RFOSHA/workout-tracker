@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { Plus, Trash2, Zap, SlidersHorizontal } from "lucide-svelte";
+  import Modal from "$lib/components/common/Modal.svelte";
+  import { Plus, Trash2, Zap, SlidersHorizontal, Pencil, MoreVertical } from "lucide-svelte";
   import { createEventDispatcher } from "svelte";
 
   export let typeName: string;
@@ -9,10 +10,14 @@
   export let baseLibrary: any[] = [];
   export let activeSearch: { t: number, e: number } | null = null;
   export let totalCycles: number;
+  export let allMuscleGroups: string[] = [];
 
   const dispatch = createEventDispatcher();
+  
+  let showMuscleSelector = false;
+  let activeMenu: number | null = null; // Tracks which exercise row has its "..." menu open
 
-  // Ensure manual arrays resize if user goes back to Step 1 and changes total weeks
+  // Auto-resize manual arrays if total weeks changes in Step 1
   $: if (totalCycles) {
       let needsUpdate = false;
       exercises.forEach(ex => {
@@ -26,21 +31,14 @@
   }
 
   function addExercise() {
-      exercises = [...exercises, { 
-          name: "", 
-          startSets: 3, 
-          endSets: 5, 
-          isDropset: false,
-          progressionType: 'linear', // Default to linear
-          manualSets: Array(totalCycles).fill(3) 
-      }];
+      exercises = [...exercises, { name: "", startSets: 3, endSets: 5, isDropset: false, progressionType: 'linear', manualSets: Array(totalCycles).fill(3) }];
   }
 
   function toggleProgression(index: number) {
       const ex = exercises[index];
       ex.progressionType = ex.progressionType === 'linear' ? 'manual' : 'linear';
       
-      // When switching to manual, instantly interpolate a smooth curve for them to tweak!
+      // Interpolate a smooth curve instantly when switching to manual mode
       if (ex.progressionType === 'manual') {
           const diff = ex.endSets - ex.startSets;
           ex.manualSets = Array.from({ length: totalCycles }, (_, i) => {
@@ -63,19 +61,44 @@
   }
 </script>
 
+<svelte:window on:click={() => activeMenu = null} />
+
 <div class="bg-gray-800 border border-gray-700 rounded-xl overflow-visible relative">
-    <div class="bg-gray-700/50 p-3 border-b border-gray-700 grid grid-cols-[20px_1fr_108px_20px_20px_20px] gap-2 items-center">
+    <div class="bg-gray-700/50 p-3 border-b border-gray-700 grid grid-cols-[20px_1fr_108px_30px] gap-2 items-center">
         <span></span> 
-        <div>
-            <h3 class="font-bold text-white text-sm">{typeName}</h3>
-            <p class="text-[10px] text-gray-400">{activeMuscles.length > 0 ? activeMuscles.join(', ') : 'All Exercises'}</p>
-        </div>
+        <h3 class="font-bold text-white text-sm truncate">{typeName}</h3>
         <div class="flex justify-between w-[108px] text-[10px] font-bold uppercase text-gray-400 tracking-wider">
             <span class="w-[50px] text-center">Start</span>
             <span class="w-[50px] text-center">End</span>
         </div>
-        <span></span><span></span><span></span> 
+        <button on:click={() => showMuscleSelector = true} class="text-gray-500 hover:text-white transition-colors flex justify-center" title="Edit Target Muscles">
+            <Pencil size={16} />
+        </button>
     </div>
+
+    {#if showMuscleSelector}
+        <Modal widthClass="max-w-sm" on:close={() => showMuscleSelector = false}>
+            <div class="p-2">
+                <h3 class="text-xl font-bold text-white mb-2">Target Muscles</h3>
+                <p class="text-sm text-gray-400 mb-6">Select the muscles this workout targets to filter the exercise search.</p>
+                
+                <div class="flex flex-wrap gap-2 mb-8">
+                    {#each allMuscleGroups as muscle}
+                        <button 
+                            on:click={() => dispatch('toggleMuscle', { muscle })}
+                            class="text-sm px-4 py-2 rounded-full border transition-all {activeMuscles.includes(muscle) ? 'bg-blue-600 border-blue-500 text-white font-bold' : 'bg-gray-800 border-gray-600 text-gray-400 hover:border-gray-500'}"
+                        >
+                            {muscle}
+                        </button>
+                    {/each}
+                </div>
+
+                <button on:click={() => showMuscleSelector = false} class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-colors shadow-lg shadow-blue-900/20">
+                    Done
+                </button>
+            </div>
+        </Modal>
+    {/if}
 
     <div class="p-3 space-y-2">
         {#if exercises.length === 0}
@@ -85,8 +108,9 @@
         {#each exercises as ex, exIdx}
             {@const searchResults = ex.name.length > 0 ? baseLibrary.filter(item => item.name.toLowerCase().includes(ex.name.toLowerCase())).slice(0, 6) : baseLibrary.slice(0, 50)}
 
-            <div class="grid grid-cols-[20px_1fr_108px_20px_20px_20px] gap-2 items-center relative">
+            <div class="grid grid-cols-[20px_1fr_108px_30px] gap-2 items-center relative">
                 <span class="text-gray-500 text-xs font-mono text-center">{exIdx + 1}</span>
+                
                 <div class="relative w-full">
                     <input 
                         type="text" 
@@ -133,28 +157,50 @@
                     </div>
                 {/if}
                 
-                <div class="flex justify-center">
-                    <button on:click={() => ex.isDropset = !ex.isDropset} class="p-2 rounded transition-colors {ex.isDropset ? 'text-yellow-400 bg-yellow-400/10' : 'text-gray-600 hover:text-gray-400'}">
-                        <Zap size={16} fill={ex.isDropset ? "currentColor" : "none"} />
+                <div class="relative flex justify-center">
+                    <button on:click|stopPropagation={() => activeMenu = activeMenu === exIdx ? null : exIdx} class="p-1 rounded text-gray-500 hover:text-white hover:bg-gray-700 transition-colors">
+                        <MoreVertical size={20} />
                     </button>
+                    
+                    {#if activeMenu === exIdx}
+                        <div class="absolute right-0 top-8 w-56 bg-gray-800 border border-gray-600 rounded-lg shadow-2xl z-50 overflow-hidden animate-fade-in-down" on:click|stopPropagation>
+                            
+                            <button on:click={() => { ex.isDropset = !ex.isDropset; activeMenu = null; }} class="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 flex items-center justify-between border-b border-gray-700 transition-colors">
+                                <span class="flex items-center gap-3">
+                                    <Zap size={16} class={ex.isDropset ? "text-yellow-400" : "text-gray-500"} /> Dropsets
+                                </span>
+                                <span class="text-[10px] font-bold {ex.isDropset ? 'text-yellow-400' : 'text-gray-500'}">{ex.isDropset ? 'ON' : 'OFF'}</span>
+                            </button>
+                            
+                            <button on:click={() => { toggleProgression(exIdx); activeMenu = null; }} class="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 flex items-center justify-between border-b border-gray-700 transition-colors">
+                                <span class="flex items-center gap-3">
+                                    <SlidersHorizontal size={16} class={ex.progressionType === 'manual' ? "text-blue-400" : "text-gray-500"} /> Mode
+                                </span>
+                                <span class="text-[10px] uppercase tracking-wider font-bold {ex.progressionType === 'manual' ? 'text-blue-400' : 'text-gray-400'}">{ex.progressionType === 'manual' ? 'Manual' : 'Linear'}</span>
+                            </button>
+                            
+                            <button on:click={() => { removeExercise(exIdx); activeMenu = null; }} class="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-3 transition-colors">
+                                <Trash2 size={16} /> Remove Exercise
+                            </button>
+                        </div>
+                    {/if}
                 </div>
-
-                <div class="flex justify-center">
-                    <button on:click={() => toggleProgression(exIdx)} class="p-2 rounded transition-colors {ex.progressionType === 'manual' ? 'text-blue-400 bg-blue-400/10' : 'text-gray-600 hover:text-gray-400'}" title="Toggle Manual Progression">
-                        <SlidersHorizontal size={16} />
-                    </button>
-                </div>
-
-                <button on:click={() => removeExercise(exIdx)} class="flex items-center justify-center text-gray-500 hover:text-red-500 transition-colors h-full"><Trash2 size={16} /></button>
             </div>
 
             {#if ex.progressionType === 'manual'}
-                <div class="pl-[28px] pr-[84px] mt-1 mb-4 animate-fade-in-down">
-                    <div class="bg-gray-900/50 rounded-lg p-3 border border-gray-700/50 flex gap-2 overflow-x-auto custom-scrollbar">
+                <div class="pl-[28px] pr-[38px] mt-2 mb-4 animate-fade-in-down">
+                    <div class="bg-gray-900/50 rounded-lg p-3 border border-gray-700/50 flex flex-col gap-2">
+                        <div class="text-[10px] font-bold text-gray-500 uppercase tracking-widest border-b border-gray-800 pb-2 mb-1 flex justify-between items-center">
+                            <span>Set Weekly Volume</span>
+                        </div>
+                        
                         {#each ex.manualSets as _, wIdx}
-                            <div class="flex flex-col items-center flex-1 min-w-[40px]">
-                                <span class="text-[10px] font-bold text-gray-500 mb-1">W{wIdx + 1}</span>
-                                <input type="number" bind:value={ex.manualSets[wIdx]} class="w-full bg-gray-800 border border-gray-600 rounded p-1.5 text-center text-sm text-white focus:border-blue-500 outline-none" />
+                            <div class="flex items-center justify-between bg-gray-800 p-2 rounded-md border border-gray-700">
+                                <span class="text-sm font-bold text-gray-400 pl-2">Week {wIdx + 1}</span>
+                                <div class="flex items-center gap-2">
+                                    <input type="number" bind:value={ex.manualSets[wIdx]} class="w-16 bg-gray-900 border border-gray-600 rounded p-1.5 text-center text-sm text-white focus:border-blue-500 outline-none font-bold" />
+                                    <span class="text-xs text-gray-500 font-medium w-8">sets</span>
+                                </div>
                             </div>
                         {/each}
                     </div>
@@ -162,7 +208,8 @@
             {/if}
 
         {/each}
-        <button on:click={addExercise} class="w-full py-2 border border-dashed border-gray-600 text-gray-400 rounded-lg text-sm hover:border-yellow-500 hover:text-yellow-400 transition-colors flex items-center justify-center gap-2 mt-2">
+        
+        <button on:click={addExercise} class="w-full py-3 border border-dashed border-gray-600 text-gray-400 rounded-lg text-sm font-medium hover:border-blue-500 hover:text-blue-400 hover:bg-blue-900/10 transition-colors flex items-center justify-center gap-2 mt-4">
             <Plus size={16} /> Add Exercise
         </button>
     </div>

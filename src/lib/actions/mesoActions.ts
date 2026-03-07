@@ -5,46 +5,6 @@ export async function deleteMesocycleFromDB(supabase: SupabaseClient, id: string
     const { error } = await supabase.from('mesocycles').delete().eq('id', id);
     if (error) throw error;
 }
-
-// export async function fetchPlanTemplates(supabase: SupabaseClient, mesocycleId: string) {
-//     const planTemplates: Record<string, any[]> = {};
-    
-//     // 1. Get unique incomplete workouts
-//     const { data: workouts } = await supabase
-//         .from('workouts')
-//         .select('name, id, completed')
-//         .eq('mesocycle_id', mesocycleId)
-//         .eq('completed', false) 
-//         .order('week_number', { ascending: true });
-
-//     if (!workouts || workouts.length === 0) return planTemplates;
-
-//     // 2. Identify the first instance (exemplar) of each unique workout
-//     const uniqueNames = [...new Set(workouts.map(w => w.name))];
-//     const exemplarIds = uniqueNames.map(name => workouts.find(w => w.name === name)!.id);
-
-//     // 3. Fetch ALL exercises for ALL exemplars in ONE network request
-//     const { data: exercises } = await supabase
-//         .from('workout_exercises')
-//         .select('exercise_name, target_sets, set_results, workout_id')
-//         .in('workout_id', exemplarIds)
-//         .order('sort_order', { ascending: true });
-
-//     // 4. Map them back to the correct template
-//     for (const name of uniqueNames) {
-//         const exemplarId = workouts.find(w => w.name === name)!.id;
-//         const templateExercises = exercises?.filter(ex => ex.workout_id === exemplarId) || [];
-        
-//         planTemplates[name] = templateExercises.map(ex => ({
-//             name: ex.exercise_name,
-//             startSets: ex.target_sets,
-//             isDropset: ex.set_results?.some((s: any) => s.dropsets && s.dropsets.length > 0) || false
-//         }));
-//     }
-    
-//     return planTemplates;
-// }
-
 export async function fetchPlanTemplates(supabase: SupabaseClient, mesocycleId: string) {
     const planTemplates: Record<string, any> = {};
     

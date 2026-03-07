@@ -125,10 +125,6 @@
               for <strong>{currentMesocycle.duration_weeks} weeks</strong>.
             </p>
             
-            <!-- <button class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-md font-bold transition-colors">
-              View Workouts
-            </button> -->
-
               <div class="mt-6">
                   {#if nextWorkout}
                     <a 
