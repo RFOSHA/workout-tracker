@@ -1,6 +1,6 @@
 <script lang="ts">
   import Modal from "$lib/components/common/Modal.svelte";
-  import { Plus, Trash2, Zap, SlidersHorizontal, Pencil, MoreVertical } from "lucide-svelte";
+  import { Plus, Trash2, Zap, SlidersHorizontal, Pencil, MoreVertical, Link } from "lucide-svelte";
   import { createEventDispatcher } from "svelte";
 
   export let typeName: string;
@@ -16,6 +16,7 @@
   
   let showMuscleSelector = false;
   let activeMenu: number | null = null; // Tracks which exercise row has its "..." menu open
+  let supersetCounter = 0;
 
   // Auto-resize manual arrays if total weeks changes in Step 1
   $: if (totalCycles) {
@@ -32,6 +33,31 @@
 
   function addExercise() {
       exercises = [...exercises, { name: "", startSets: 3, endSets: 5, isDropset: false, progressionType: 'linear', manualSets: Array(totalCycles).fill(3) }];
+  }
+
+  function toggleSuperset(exIdx: number) {
+      const ex = exercises[exIdx];
+      if (ex.supersetGroup) {
+          // Unlink: clear group from all exercises that share it
+          const gid = ex.supersetGroup;
+          exercises = exercises.map(e => e.supersetGroup === gid ? { ...e, supersetGroup: undefined } : e);
+      } else {
+          // Link with the next exercise (add one if needed)
+          supersetCounter++;
+          const gid = supersetCounter;
+          exercises[exIdx] = { ...exercises[exIdx], supersetGroup: gid };
+          if (exIdx + 1 < exercises.length && !exercises[exIdx + 1].supersetGroup) {
+              exercises[exIdx + 1] = { ...exercises[exIdx + 1], supersetGroup: gid };
+          } else {
+              // Append a blank partner slot
+              exercises = [
+                  ...exercises,
+                  { name: "", startSets: 3, endSets: 5, isDropset: false, progressionType: 'linear', manualSets: Array(totalCycles).fill(3), supersetGroup: gid }
+              ];
+          }
+          exercises = [...exercises];
+      }
+      activeMenu = null;
   }
 
   function toggleProgression(index: number) {
@@ -171,6 +197,13 @@
                                 </span>
                                 <span class="text-[10px] font-bold {ex.isDropset ? 'text-yellow-400' : 'text-gray-500'}">{ex.isDropset ? 'ON' : 'OFF'}</span>
                             </button>
+
+                            <button on:click={() => toggleSuperset(exIdx)} class="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 flex items-center justify-between border-b border-gray-700 transition-colors">
+                                <span class="flex items-center gap-3">
+                                    <Link size={16} class={ex.supersetGroup ? "text-orange-400" : "text-gray-500"} /> Superset
+                                </span>
+                                <span class="text-[10px] font-bold {ex.supersetGroup ? 'text-orange-400' : 'text-gray-500'}">{ex.supersetGroup ? 'ON' : 'OFF'}</span>
+                            </button>
                             
                             <button on:click={() => { toggleProgression(exIdx); activeMenu = null; }} class="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 flex items-center justify-between border-b border-gray-700 transition-colors">
                                 <span class="flex items-center gap-3">
@@ -186,6 +219,17 @@
                     {/if}
                 </div>
             </div>
+
+            {#if ex.supersetGroup && exercises[exIdx + 1]?.supersetGroup === ex.supersetGroup}
+                <div class="flex items-center gap-1.5 pl-8 my-0.5">
+                    <div class="flex flex-col items-center w-4 shrink-0">
+                        <div class="w-px h-2 bg-orange-600/50"></div>
+                        <span class="text-[8px] font-black text-orange-500 bg-orange-900/20 border border-orange-700/40 rounded-sm px-1 leading-tight py-0.5">SS</span>
+                        <div class="w-px h-2 bg-orange-600/50"></div>
+                    </div>
+                    <div class="flex-1 h-px bg-orange-800/20"></div>
+                </div>
+            {/if}
 
             {#if ex.progressionType === 'manual'}
                 <div class="pl-[28px] pr-[38px] mt-2 mb-4 animate-fade-in-down">

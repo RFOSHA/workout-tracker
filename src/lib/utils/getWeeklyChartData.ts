@@ -1,14 +1,24 @@
-export function getWeeklyChartData(data: any, filter: string) {
-    if (!data || !data.weeklyBreakdown || data.weeklyBreakdown.length === 0) return { bars: [], max: 10 };
+export function getWeeklyChartData(
+    data: any,
+    filter: string,
+    metric: 'sets' | 'volume' = 'sets'
+) {
+    if (!data?.weeklyBreakdown?.length) return { bars: [], max: 10 };
+
     const bars = data.weeklyBreakdown.map((w: any) => {
         let count = 0;
-        if (filter === "All") {
-            count = w.total;
+        if (metric === 'volume') {
+            count = filter === 'All'
+                ? (w.volume || 0)
+                : (w.muscleVolumes?.[filter] || 0);
         } else {
-            count = w.muscles[filter] || 0;
+            count = filter === 'All'
+                ? w.total
+                : (w.muscles[filter] || 0);
         }
         return { week: w.week, count };
     });
+
     const max = Math.max(...bars.map((b: any) => b.count)) || 10;
     return { bars, max };
-  }
+}

@@ -2,9 +2,8 @@
   import { onMount } from "svelte";
   import { supabase } from "$lib/supabaseClient";
   import { goto } from "$app/navigation";
-  import { ArrowRight, Calendar, Dumbbell, Layers, CheckCircle, TrendingUp, ShieldAlert, Percent, Info } from "lucide-svelte";
+  import { ArrowRight, Calendar, Dumbbell, Layers, CheckCircle, TrendingUp, ShieldAlert, Percent, Info, Zap, Bot } from "lucide-svelte";
   
-  // Imports
   import CustomExerciseModal from "$lib/components/workout/modals/CustomExerciseModal.svelte";
   import WorkoutTypeBuilder from "$lib/components/mesocycle/wizard/WorkoutTypeBuilder.svelte";
   import { createMesocyclePlan } from "$lib/actions/generateMesocycle";
@@ -12,8 +11,12 @@
   import AlertModal from "$lib/components/common/AlertModal.svelte";
   import Modal from "$lib/components/common/Modal.svelte";
 
+  // NEW: Import predefined templates
+  import { PREDEFINED_TEMPLATES, generateTemplateDeload } from "$lib/data/predefinedTemplates";
+  import MesoAIChat from "$lib/components/mesocycle/MesoAIChat.svelte";
+
   // --- STATE ---
-  let step = 1;
+  let step: number | string = 0; // Changed step default to 0 for initial path
   let loading = false;
   let exerciseLibrary: any[] = [];
   let activeSearch: { t: number, e: number } | null = null;
@@ -26,16 +29,15 @@
   let customExerciseName = "";
   let pendingCustomContext: { t: number, e: number } | null = null;
 
-  
-
   // Step States
   let config = { microcycleDays: 7, liftingDays: 5, restDays: 2, workoutTypes: 3, totalCycles: 6, startDate: new Date().toISOString().split('T')[0], mesoName: "" };
+  
+  // Custom Flow States
   let workoutDefinitions: string[] = [];
   let selectedGroups: string[][] = [];
   let schedule: { dayIndex: number; type: 'rest' | 'lift'; workoutName?: string }[] = [];
-  // Update typing to support new properties
   let exercisesPerType: Record<string, { 
-      name: string; 
+      name: string;
       startSets: number; 
       endSets: number; 
       isDropset: boolean; 
@@ -45,6 +47,9 @@
   
   interface DeloadDaySettings { dayIndex: number; workoutName: string; reduceSets: number; reduceWeight: number; reduceReps: number; }
   let deloadConfig = { enabled: false, duration: 1, weeks: [] as DeloadDaySettings[][] };
+
+  // Template Flow States
+  let selectedTemplate: any = null;
 
   // --- LIFECYCLE ---
   onMount(async () => {
@@ -59,7 +64,6 @@
   });
 
   // --- LOGIC ---
-  // Helper to trigger alerts
   function showAlert(title: string, message: string) {
       alertTitle = title;
       alertMessage = message;
@@ -68,7 +72,6 @@
   function handleCustomCreated(e: CustomEvent) {
       const { name, muscle } = e.detail;
       exerciseLibrary = [...exerciseLibrary, { name, muscle_group: muscle }].sort((a,b) => a.name.localeCompare(b.name));
-      
       if (pendingCustomContext) {
           const { t, e: exIndex } = pendingCustomContext;
           exercisesPerType[workoutDefinitions[t]][exIndex].name = name;
@@ -77,29 +80,102 @@
       pendingCustomContext = null;
   }
 
+  // AI Builder Handler
+  async function handleAIAccept(e: CustomEvent) {
+    loading = true;
+    try {
+      const { config, schedule, deloadConfig, exercisesPerType } = e.detail;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("You must be logged in.");
+
+      // Ensure any AI-suggested exercises exist in the library
+      const requiredNames = new Set<string>();
+      Object.values(exercisesPerType as Record<string, any[]>).forEach(arr =>
+        arr.forEach((ex: any) => requiredNames.add(ex.name))
+      );
+      const existingSet = new Set(exerciseLibrary.map(e => e.name));
+      const missing = Array.from(requiredNames).filter(n => !existingSet.has(n));
+      if (missing.length > 0) {
+        const payloads = missing.map(name => ({ name, muscle_group: 'Other', user_id: user.id }));
+        await supabase.from('exercise_library').insert(payloads);
+      }
+
+      await createMesocyclePlan(supabase, user.id, config, schedule, deloadConfig, exercisesPerType);
+      goto('/');
+    } catch (err: any) {
+      showAlert("Error creating AI plan", err.message);
+    } finally {
+      loading = false;
+    }
+  }
+
+  // Template Handlers
+  function applyTemplate(template: any) {
+      selectedTemplate = JSON.parse(JSON.stringify(template)); // Deep clone
+      config.mesoName = selectedTemplate.name;
+      step = 'template_confirm';
+  }
+
+  async function handleGenerateFromTemplate() {
+      if (!config.mesoName.trim()) return showAlert("Wait!", "Please provide a cycle name.");
+      loading = true;
+      
+      try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) throw new Error("You must be logged in.");
+
+          // Inject user overrides
+          const finalConfig = { 
+              ...selectedTemplate.config, 
+              mesoName: config.mesoName, 
+              startDate: config.startDate 
+          };
+          const deload = generateTemplateDeload(selectedTemplate.schedule);
+
+          // Safeguard: Auto-add any exercises the template uses that the user might not have
+          const requiredExercises = new Set<string>();
+          Object.values(selectedTemplate.exercisesPerType).forEach((arr: any) => {
+              arr.forEach((ex: any) => requiredExercises.add(ex.name));
+          });
+          
+          const existingSet = new Set(exerciseLibrary.map(e => e.name));
+          const missing = Array.from(requiredExercises).filter(name => !existingSet.has(name));
+          
+          if (missing.length > 0) {
+              const payloads = missing.map(name => ({ name, muscle_group: 'Other', user_id: user.id }));
+              await supabase.from('exercise_library').insert(payloads);
+          }
+
+          await createMesocyclePlan(supabase, user.id, finalConfig, selectedTemplate.schedule, deload, selectedTemplate.exercisesPerType);
+          goto('/');
+      } catch (err: any) {
+          showAlert("Error creating plan", err.message);
+      } finally {
+          loading = false;
+      }
+  }
+
+  // Custom Flow Wizard Navigation
   function goToStep2() {
-    // Updated to use showAlert
     if ((config.liftingDays + config.restDays) !== config.microcycleDays) {
         return showAlert("Math Error", `Lifting (${config.liftingDays}) + Rest (${config.restDays}) must equal Cycle (${config.microcycleDays}).`);
     }
-    
     if (config.workoutTypes > config.liftingDays) {
         return showAlert("Invalid Setup", "Unique Types cannot exceed the number of Lifting Days.");
     }
-    
     if (workoutDefinitions.length !== config.workoutTypes) workoutDefinitions = Array(config.workoutTypes).fill("");
     if (selectedGroups.length !== config.workoutTypes) selectedGroups = Array.from({ length: config.workoutTypes }, () => []);
-    
     step = 2;
   }
 
   function toggleMuscleGroup(workoutIndex: number, muscle: string) {
     const currentList = selectedGroups[workoutIndex];
-    selectedGroups[workoutIndex] = currentList.includes(muscle) ? currentList.filter(m => m !== muscle) : [...currentList, muscle];
+    selectedGroups[workoutIndex] = currentList.includes(muscle) ?
+        currentList.filter(m => m !== muscle) : [...currentList, muscle];
   }
 
   function goToStep3() {
-    if (workoutDefinitions.some(n => !n.trim())) return alert("Please name all your workout types.");
+    if (workoutDefinitions.some(n => !n.trim())) return showAlert("Hold up", "Please name all your workout types.");
     if (schedule.length !== config.microcycleDays) schedule = Array.from({ length: config.microcycleDays }, (_, i) => ({ dayIndex: i + 1, type: 'rest', workoutName: undefined }));
     step = 3;
   }
@@ -136,7 +212,7 @@
         await createMesocyclePlan(supabase, user.id, config, schedule, deloadConfig, exercisesPerType);
         goto('/');
     } catch (err: any) {
-        alert("Error creating plan: " + err.message);
+        showAlert("Error", "Error creating plan: " + err.message);
     } finally {
         loading = false;
     }
@@ -144,15 +220,154 @@
 </script>
 
 <div class="min-h-screen bg-gray-900 text-white p-6 pb-32">
-  <header class="mb-8">
-    <h1 class="text-3xl font-bold">Build Your Plan</h1>
-    <p class="text-gray-400">Step {step} of 5</p>
-    <div class="h-1 w-full bg-gray-800 mt-4 rounded-full overflow-hidden">
-      <div class="h-full bg-blue-500 transition-all duration-300" style="width: {(step/5)*100}%"></div>
-    </div>
-  </header>
+  {#if typeof step === 'number' && step > 0}
+    <header class="mb-8">
+        <h1 class="text-3xl font-bold">Build Your Plan</h1>
+        <p class="text-gray-400">Step {step} of 5</p>
+        <div class="h-1 w-full bg-gray-800 mt-4 rounded-full overflow-hidden">
+        <div class="h-full bg-blue-500 transition-all duration-300" style="width: {(step/5)*100}%"></div>
+        </div>
+    </header>
+  {:else if step === 0}
+    <header class="mb-8">
+        <h1 class="text-3xl font-bold mb-2">New Plan</h1>
+        <p class="text-gray-400">Select how you want to build your next block.</p>
+    </header>
+  {/if}
+  <!-- No header for 'ai', 'templates', 'template_confirm' — each section renders its own -->
 
-{#if step === 1}
+  {#if step === 0}
+      <div class="max-w-xl mx-auto animate-fade-in space-y-4">
+          <!-- AI Builder (top / featured) -->
+          <button on:click={() => step = 'ai'} class="w-full bg-gradient-to-br from-blue-900/40 to-purple-900/30 border border-blue-600/60 hover:border-blue-400 p-6 rounded-xl flex items-center justify-between transition-all group shadow-lg text-left">
+              <div>
+                  <div class="flex items-center gap-2 mb-1">
+                    <h3 class="text-lg font-bold text-white group-hover:text-blue-300 transition-colors flex items-center gap-2">
+                      <Bot size={20} class="text-blue-400" />
+                      AI Builder
+                    </h3>
+                    <span class="text-[10px] uppercase font-black tracking-widest bg-blue-600 text-white px-2 py-0.5 rounded">NEW</span>
+                  </div>
+                  <p class="text-gray-400 text-sm">Describe your goals in plain English. Claude designs your perfect mesocycle.</p>
+              </div>
+              <ArrowRight class="text-gray-500 group-hover:text-blue-400 transition-colors" />
+          </button>
+
+          <button on:click={() => step = 'templates'} class="w-full bg-gray-800 border border-gray-700 hover:border-blue-500 hover:bg-gray-800 p-6 rounded-xl flex items-center justify-between transition-all group shadow-lg text-left">
+              <div>
+                  <h3 class="text-lg font-bold text-white group-hover:text-blue-400 transition-colors flex items-center gap-2">
+                    <Zap size={20} class="text-blue-400" />
+                    Use Predefined Template
+                  </h3>
+                  <p class="text-gray-400 text-sm mt-1">Select from {PREDEFINED_TEMPLATES.length} research-backed routines. Bypasses wizard.</p>
+              </div>
+              <ArrowRight class="text-gray-500 group-hover:text-blue-500 transition-colors" />
+          </button>
+
+          <button on:click={() => step = 1} class="w-full bg-gray-800 border border-gray-700 hover:border-gray-500 hover:bg-gray-700 p-6 rounded-xl flex items-center justify-between transition-all group shadow-lg text-left">
+              <div>
+                  <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                    <Layers size={20} class="text-gray-400" />
+                    Custom Wizard
+                  </h3>
+                  <p class="text-gray-400 text-sm mt-1">Build everything from scratch. Total control over days and exercises.</p>
+              </div>
+              <ArrowRight class="text-gray-500 transition-colors" />
+          </button>
+      </div>
+  {/if}
+
+  {#if step === 'ai'}
+      <div class="max-w-xl mx-auto animate-fade-in flex flex-col" style="height: calc(100vh - 10rem);">
+          <div class="flex items-center justify-between mb-4 shrink-0">
+              <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                  <Bot size={20} class="text-blue-400"/> AI Mesocycle Builder
+              </h2>
+              <button on:click={() => step = 0} class="px-4 py-2 bg-gray-800 rounded-lg text-sm text-gray-400 hover:text-white transition-colors">
+                  Cancel
+              </button>
+          </div>
+
+          {#if loading}
+              <div class="flex-1 flex items-center justify-center text-gray-500 text-sm">
+                  Creating your mesocycle...
+              </div>
+          {:else}
+              <div class="flex-1 overflow-hidden">
+                  <MesoAIChat
+                      {exerciseLibrary}
+                      on:accept={handleAIAccept}
+                  />
+              </div>
+          {/if}
+      </div>
+  {/if}
+
+  {#if step === 'templates'}
+      <div class="max-w-2xl mx-auto animate-fade-in pb-20">
+         <div class="flex items-center justify-between mb-6">
+            <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                <Zap size={20} class="text-blue-400"/> Pick a Template
+            </h2>
+            <button on:click={() => step = 0} class="px-4 py-2 bg-gray-800 rounded-lg text-sm text-gray-400 hover:text-white transition-colors">Cancel</button>
+         </div>
+         
+         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+             {#each PREDEFINED_TEMPLATES as template}
+                 <button on:click={() => applyTemplate(template)} class="bg-gray-800 border border-gray-700 rounded-xl p-5 text-left hover:border-blue-500 transition-colors flex flex-col group">
+                     <h3 class="font-bold text-lg text-white mb-2 group-hover:text-blue-400 transition-colors">{template.name}</h3>
+                     <p class="text-sm text-gray-400 mb-4 flex-1">{template.description}</p>
+                     <div class="flex flex-wrap gap-2">
+                        {#each template.tags as tag}
+                            <span class="text-[10px] uppercase font-bold tracking-wider bg-gray-900 text-blue-400 px-2 py-1 rounded border border-gray-700">{tag}</span>
+                        {/each}
+                     </div>
+                 </button>
+             {/each}
+         </div>
+      </div>
+  {/if}
+
+  {#if step === 'template_confirm'}
+      <div class="max-w-xl mx-auto animate-fade-in pb-20">
+          <button on:click={() => step = 'templates'} class="text-gray-400 hover:text-white mb-6 text-sm flex items-center gap-2">
+            ← Back to Templates
+          </button>
+          
+          <div class="bg-gray-800 p-6 rounded-xl border border-gray-700">
+              <h2 class="text-xl font-bold text-blue-400 mb-2">{selectedTemplate.name}</h2>
+              <p class="text-sm text-gray-400 mb-6 pb-6 border-b border-gray-700">{selectedTemplate.description}</p>
+              
+              <div class="space-y-4">
+                  <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Cycle Name</label>
+                    <input type="text" bind:value={config.mesoName} class="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-white focus:border-blue-500 outline-none" />
+                  </div>
+                  <div class="grid grid-cols-2 gap-4">
+                      <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Total Cycles (Weeks)</label>
+                        <input type="number" bind:value={selectedTemplate.config.totalCycles} class="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-white focus:border-blue-500 outline-none" />
+                      </div>
+                      <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Start Date</label>
+                        <input type="date" bind:value={config.startDate} class="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-white focus:border-blue-500 outline-none" />
+                      </div>
+                  </div>
+              </div>
+
+              <div class="mt-6 text-xs text-gray-400 bg-blue-900/10 border border-blue-500/20 p-3 rounded flex gap-2">
+                  <Info size={16} class="text-blue-400 shrink-0" />
+                  <span>This template will automatically include a 1-week deload phase at the end of the block. You can manage weights entirely through the workout interface!</span>
+              </div>
+
+              <button on:click={handleGenerateFromTemplate} disabled={loading} class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl mt-8 flex justify-center items-center gap-2">
+                {#if loading} Generating... {:else} Generate Plan <CheckCircle size={20} /> {/if}
+              </button>
+          </div>
+      </div>
+  {/if}
+
+  {#if step === 1}
     <div class="max-w-xl mx-auto space-y-6 animate-fade-in">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -183,9 +398,13 @@
                 <div><label class="block text-xs text-blue-400 font-bold mb-1">Unique Types</label><input type="number" bind:value={config.workoutTypes} class="w-full bg-gray-800 p-3 rounded border border-blue-500/50" /></div>
             </div>
           </div>
-          <button on:click={goToStep2} class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl mt-8 flex justify-center items-center gap-2">
-            Define Workouts <ArrowRight size={20} />
-          </button>
+
+          <div class="flex gap-4 mt-8">
+            <button on:click={() => step = 0} class="px-6 py-4 rounded-xl bg-gray-800 text-gray-400">Back</button>
+            <button on:click={goToStep2} class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl flex justify-center items-center gap-2">
+                Define Workouts <ArrowRight size={20} />
+            </button>
+          </div>
     </div>
   {/if}
 
@@ -384,5 +603,4 @@
         on:close={() => alertMessage = ""} 
     />
   {/if}
-
 </div>

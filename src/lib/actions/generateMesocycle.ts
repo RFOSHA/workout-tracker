@@ -149,6 +149,11 @@ export async function createMesocyclePlan(
                     }
                 }
 
+                // Carry superset group into DB config so the workout page can group visually
+                if (ex.supersetGroup) {
+                    configData = { ...configData, superset_group: ex.supersetGroup };
+                }
+
                 const initialDropsets = ex.isDropset ? [{ weight: null, reps: null }] : [];
 
                 allExercisesToInsert.push({
