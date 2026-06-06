@@ -14,12 +14,21 @@
   export let isComplete = false;
 
   let selectedRecapMuscle = "All";
+  let chartMetric: 'sets' | 'volume' = 'sets';
 
-  // Reactive statement to update chart when filter changes
-  $: weeklyChartData = getWeeklyChartData(recapData, selectedRecapMuscle);
+  // Reactive — reruns whenever filter or metric changes
+  $: weeklyChartData = getWeeklyChartData(recapData, selectedRecapMuscle, chartMetric);
 
   function formatNumber(num: number) {
     return new Intl.NumberFormat('en-US').format(num);
+  }
+
+  // Compact label shown inside bar tooltip (e.g. "42" or "12.5k")
+  function formatBarLabel(count: number): string {
+    if (chartMetric === 'volume' && count >= 1000) {
+      return `${(count / 1000).toFixed(1)}k`;
+    }
+    return String(count);
   }
 </script>
 
@@ -56,39 +65,76 @@
             </div>
 
             <div>
-                <div class="flex justify-between items-end mb-4">
+                <!-- Header row: title + metric toggle + muscle filter -->
+                <div class="flex justify-between items-center mb-3">
                     <h3 class="text-lg font-bold text-white flex items-center gap-2">
-                        <Calendar size={18} class="text-blue-400"/> Weekly Sets
+                        <Calendar size={18} class="text-blue-400"/>
+                        Weekly {chartMetric === 'sets' ? 'Sets' : 'Volume'}
                     </h3>
-                    <div class="relative">
-                        <select 
-                            bind:value={selectedRecapMuscle}
-                            class="appearance-none bg-gray-800 text-xs text-white border border-gray-600 rounded px-3 py-1 pr-8 focus:outline-none focus:border-blue-500"
-                        >
-                            <option value="All">All Muscles</option>
-                            {#if recapData.muscleStats}
-                                {#each recapData.muscleStats as m}
-                                    <option value={m.name}>{m.name}</option>
-                                {/each}
-                            {/if}
-                        </select>
-                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
-                            <Filter size={12} />
+                    <div class="flex items-center gap-2">
+                        <!-- Sets / Volume toggle -->
+                        <div class="flex gap-1">
+                            <button
+                                on:click={() => chartMetric = 'sets'}
+                                class="text-xs px-2.5 py-1 rounded-full font-bold transition-colors
+                                    {chartMetric === 'sets' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:text-white'}"
+                            >Sets</button>
+                            <button
+                                on:click={() => chartMetric = 'volume'}
+                                class="text-xs px-2.5 py-1 rounded-full font-bold transition-colors
+                                    {chartMetric === 'volume' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:text-white'}"
+                            >Volume</button>
+                        </div>
+                        <!-- Muscle filter -->
+                        <div class="relative">
+                            <select
+                                bind:value={selectedRecapMuscle}
+                                class="appearance-none bg-gray-800 text-xs text-white border border-gray-600 rounded px-3 py-1 pr-7 focus:outline-none focus:border-blue-500"
+                            >
+                                <option value="All">All Muscles</option>
+                                {#if recapData.muscleStats}
+                                    {#each recapData.muscleStats as m}
+                                        <option value={m.name}>{m.name}</option>
+                                    {/each}
+                                {/if}
+                            </select>
+                            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
+                                <Filter size={12} />
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div class="bg-gray-800/30 rounded-xl p-4 border border-gray-700/50 h-48 flex items-end justify-between gap-2">
-                    {#each weeklyChartData.bars as w}
-                        {@const heightPercent = weeklyChartData.max > 0 ? (w.count / weeklyChartData.max) * 100 : 0}
-                        <div class="flex-1 flex flex-col items-center gap-1 group h-full justify-end">
-                            <span class="text-[10px] text-gray-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity">{w.count}</span>
-                            <div 
-                                class="w-full bg-blue-600 rounded-t hover:bg-blue-500 transition-all relative group-hover:shadow-[0_0_10px_rgba(37,99,235,0.5)]" 
-                                style="height: {heightPercent}%; min-height: 1px;"
-                            ></div>
-                            <span class="text-[10px] text-gray-500 font-mono">W{w.week}</span>
-                        </div>
-                    {/each}
+
+                <div class="bg-gray-800/30 rounded-xl p-4 border border-gray-700/50">
+                    <!-- Bars: fixed pixel heights so labels don't distort bar sizing -->
+                    <div class="h-36 flex items-end gap-2">
+                        {#each weeklyChartData.bars as w}
+                            {@const barPx = weeklyChartData.max > 0
+                                ? Math.round((w.count / weeklyChartData.max) * 118)
+                                : 0}
+                            <div class="flex-1 h-full flex flex-col items-center justify-end group">
+                                <!-- Count label: fixed 16px slot so all columns are the same height -->
+                                <div class="h-4 flex items-end justify-center">
+                                    <span class="text-[10px] text-gray-400 font-bold leading-none opacity-0 group-hover:opacity-100 transition-opacity">
+                                        {w.count > 0 ? formatBarLabel(w.count) : ''}
+                                    </span>
+                                </div>
+                                <div
+                                    class="w-full mt-1 rounded-t flex-shrink-0 transition-colors
+                                        {barPx > 0 ? 'bg-blue-600 hover:bg-blue-500 group-hover:shadow-[0_0_8px_rgba(37,99,235,0.4)]' : ''}"
+                                    style="height: {barPx > 0 ? Math.max(barPx, 3) : 0}px;"
+                                ></div>
+                            </div>
+                        {/each}
+                    </div>
+                    <!-- Week labels: separate row below bars so they don't compress bar height -->
+                    <div class="flex gap-2 mt-2">
+                        {#each weeklyChartData.bars as w}
+                            <div class="flex-1 text-center">
+                                <span class="text-[10px] text-gray-500 font-mono">W{w.week}</span>
+                            </div>
+                        {/each}
+                    </div>
                 </div>
             </div>
 

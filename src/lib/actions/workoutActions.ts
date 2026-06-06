@@ -17,8 +17,9 @@ export async function updateExerciseSets(supabase: SupabaseClient, exercise: any
             : false;
 
         return {
-            weight: s.weight, // <--- Ensure this is being captured
-            reps: s.reps,     // <--- Ensure this is being captured
+            weight: s.weight,
+            reps: s.reps,
+            rir: s.rir ?? null,
             dropsets: s.dropsets || [],
             // Map the suggestion back to target so it persists
             target_weight: s.suggestedWeight || s.target_weight || null,
@@ -92,24 +93,26 @@ export async function moveExerciseOrder(supabase: SupabaseClient, exercises: any
 }
 
 export async function addNewExercise(
-    supabase: SupabaseClient, 
-    workoutId: string, 
-    name: string, 
-    targetSets: number, 
-    orderIndex: number
+    supabase: SupabaseClient,
+    workoutId: string,
+    name: string,
+    targetSets: number,
+    orderIndex: number,
+    config?: Record<string, any>
 ) {
     const initialSets = Array.from({ length: targetSets }, () => ({ weight: null, reps: null, dropsets: [] }));
-    
-    const { data, error } = await supabase.from('workout_exercises').insert({ 
-        workout_id: workoutId, 
-        exercise_name: name, 
-        target_sets: targetSets, 
+
+    const { data, error } = await supabase.from('workout_exercises').insert({
+        workout_id: workoutId,
+        exercise_name: name,
+        target_sets: targetSets,
         set_results: initialSets,
-        sort_order: orderIndex
+        sort_order: orderIndex,
+        ...(config ? { config } : {})
     }).select().single();
-    
+
     if (error) throw error;
-    return { ...data, set_results: initialSets };
+    return { ...data, set_results: initialSets, config: config ?? null };
 }
 
 export async function addExerciseToFutureWorkouts(

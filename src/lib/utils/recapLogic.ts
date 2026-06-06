@@ -61,15 +61,16 @@ export async function fetchRecapData(supabase: SupabaseClient, mesoId: string) {
 
     // Initialize weeks
     for (let i = 1; i <= meso.duration_weeks; i++) {
-        weeklyDataMap[i] = { total: 0, muscles: {} };
+        weeklyDataMap[i] = { total: 0, muscles: {}, volume: 0, muscleVolumes: {} };
     }
 
     exercises.forEach(ex => {
         const week = workoutIdMap.get(ex.workout_id) || 0;
         const muscle = muscleMap.get(ex.exercise_name) || 'Other';
-        if (!weeklyDataMap[week]) weeklyDataMap[week] = { total: 0, muscles: {} };
+        if (!weeklyDataMap[week]) weeklyDataMap[week] = { total: 0, muscles: {}, volume: 0, muscleVolumes: {} };
 
         let validSets = 0;
+        let exVolume = 0;
         let maxWeight = 0;
         let maxReps = 0;
 
@@ -79,7 +80,11 @@ export async function fetchRecapData(supabase: SupabaseClient, mesoId: string) {
                 const w = Number(s.weight);
                 if (r > 0) {
                     validSets++;
-                    if (w > 0) totalVolume += (w * r);
+                    if (w > 0) {
+                        const setVol = w * r;
+                        totalVolume += setVol;
+                        exVolume   += setVol;
+                    }
                     if (w > maxWeight || (w === maxWeight && r > maxReps)) {
                         maxWeight = w;
                         maxReps = r;
@@ -92,7 +97,9 @@ export async function fetchRecapData(supabase: SupabaseClient, mesoId: string) {
             muscleCounts[muscle] = (muscleCounts[muscle] || 0) + validSets;
             weeklyDataMap[week].total += validSets;
             weeklyDataMap[week].muscles[muscle] = (weeklyDataMap[week].muscles[muscle] || 0) + validSets;
-            
+            weeklyDataMap[week].volume += exVolume;
+            weeklyDataMap[week].muscleVolumes[muscle] = (weeklyDataMap[week].muscleVolumes[muscle] || 0) + exVolume;
+
             if (!exerciseHistory[ex.exercise_name]) exerciseHistory[ex.exercise_name] = [];
             exerciseHistory[ex.exercise_name].push({ week, bestSet: { weight: maxWeight, reps: maxReps } });
         }

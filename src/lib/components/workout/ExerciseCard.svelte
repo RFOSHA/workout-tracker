@@ -7,7 +7,7 @@
   export let exercise: any;
   export let index: number;
   export let totalExercises: number;
-  export let activeMenu: any; 
+  export let activeMenu: any;
 
   const dispatch = createEventDispatcher();
 
@@ -77,8 +77,8 @@
                 >
                     <ArrowDown size={16} /> Move Down
                 </button>
-                <button 
-                    on:click={() => dispatch('deleteExercise')} 
+                <button
+                    on:click={() => dispatch('deleteExercise')}
                     class="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-gray-700 flex items-center gap-3"
                 >
                     <Trash2 size={16} /> Remove
@@ -132,7 +132,7 @@
              {setIndex}
              isActive={activeMenu?.exIndex === index && activeMenu?.setIndex === setIndex}
              on:toggleMenu
-             on:saveSet={() => dispatch('saveSet', { exercise })}
+             on:saveSet={(e) => dispatch('saveSet', { exercise, startTimer: e.detail?.startTimer })}
              on:deleteSet
           />
        {/each}

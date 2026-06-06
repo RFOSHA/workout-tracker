@@ -1,7 +1,7 @@
 <script lang="ts">
   import { MoreVertical, Zap, Trash2, CornerDownRight } from 'lucide-svelte';
   import { createEventDispatcher } from 'svelte';
-  
+
   // 👇 RENAME 'set' to 'setData' to avoid conflict with Svelte's internal API
   export let setData: any;
   export let index: number;
@@ -10,17 +10,38 @@
 
   const dispatch = createEventDispatcher();
 
+  // RIR color classes (selected state) — explicit strings so Tailwind JIT keeps them
+  const RIR_SELECTED = [
+    'bg-red-700 text-white',          // 0 – failure
+    'bg-orange-600 text-white',       // 1
+    'bg-amber-500 text-gray-900',     // 2
+    'bg-yellow-400 text-gray-900',    // 3
+    'bg-lime-500 text-gray-900',      // 4
+    'bg-green-600 text-white',        // 5 – very easy
+  ];
+  const RIR_UNSELECTED = 'bg-gray-700/60 text-gray-500 hover:bg-gray-600 hover:text-white';
+
+  // Local state for RIR so Svelte re-renders the button colors on change.
+  // (setData is a one-way prop — mutating setData.rir alone doesn't trigger reactivity.)
+  let localRir: number | null = setData.rir ?? null;
+
+  function toggleRir(r: number) {
+    localRir = localRir === r ? null : r;
+    setData.rir = localRir;           // write back so the save picks it up
+    dispatch('saveSet', { startTimer: true });   // only RIR triggers the rest timer
+  }
+
   function addDropset() {
-      // Update references here
       setData.dropsets = [...(setData.dropsets || []), { weight: null, reps: null }];
       dispatch('saveSet');
   }
 
   function removeDropset(dropIndex: number) {
-      // Update references here
       setData.dropsets = setData.dropsets.filter((_: any, i: number) => i !== dropIndex);
       dispatch('saveSet');
   }
+
+  $: hasData = setData.weight !== null || setData.reps !== null;
 </script>
 
 <div class="grid grid-cols-[30px_1fr_1fr_30px] gap-4 items-center relative {isActive ? 'z-50' : 'z-10'}">
@@ -76,6 +97,24 @@
       {/if}
    </div>
 </div>
+
+{#if hasData}
+  <div class="grid grid-cols-[30px_1fr_1fr_30px] gap-4 mt-1.5">
+    <div></div>
+    <div class="col-span-2 flex items-center gap-1">
+      <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest w-7 shrink-0">RIR</span>
+      {#each [0, 1, 2, 3, 4, 5] as r}
+        <button
+          on:click={() => toggleRir(r)}
+          class="flex-1 h-6 rounded text-xs font-bold transition-colors {localRir === r ? RIR_SELECTED[r] : RIR_UNSELECTED}"
+          aria-label="RIR {r}"
+          title="Reps in Reserve: {r}{r === 0 ? ' (failure)' : ''}"
+        >{r}</button>
+      {/each}
+    </div>
+    <div></div>
+  </div>
+{/if}
 
 {#if setData.dropsets && setData.dropsets.length > 0}
   <div class="space-y-2 mt-2"> 

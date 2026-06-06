@@ -215,6 +215,7 @@ export async function updateExerciseSets(supabase: SupabaseClient, exercise: any
         return {
             weight: s.weight,
             reps: s.reps,
+            rir: s.rir ?? null,
             dropsets: s.dropsets,
             target_weight: s.suggestedWeight || null,
             target_reps: s.suggestedReps || null,

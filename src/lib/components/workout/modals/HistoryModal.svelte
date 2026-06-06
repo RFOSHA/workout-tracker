@@ -7,6 +7,20 @@
   export let historyData: any[] = [];
 
   const dispatch = createEventDispatcher();
+
+  // RIR badge: color + label
+  const RIR_BADGE = [
+    'bg-red-900/60 text-red-400',
+    'bg-orange-900/60 text-orange-400',
+    'bg-amber-900/60 text-amber-400',
+    'bg-yellow-900/60 text-yellow-400',
+    'bg-lime-900/60 text-lime-400',
+    'bg-green-900/60 text-green-400',
+  ];
+
+  function rirBadgeClass(rir: number): string {
+    return RIR_BADGE[rir] ?? 'bg-gray-800 text-gray-400';
+  }
 </script>
 
 <Modal widthClass="max-w-md" on:close={() => dispatch('close')}>
@@ -36,15 +50,20 @@
                     </div>
 
                     <div class="space-y-1">
-                        {#each sess.sets as s, i} 
+                        {#each sess.sets as s, i}
                             <div class="text-sm flex items-center gap-4 border-t border-gray-800/50 pt-1">
-                                <span class="w-4 text-gray-600 font-mono text-xs">{i+1}</span> 
-                                <div class="flex-1 flex justify-between">
-                                    <span class="text-white font-medium">{s.weight || 0} <span class="text-xs text-gray-600 font-normal">lbs</span></span> 
+                                <span class="w-4 text-gray-600 font-mono text-xs">{i+1}</span>
+                                <div class="flex-1 flex justify-between items-center">
+                                    <span class="text-white font-medium">{s.weight || 0} <span class="text-xs text-gray-600 font-normal">lbs</span></span>
                                     <span class="text-green-400 font-bold">{s.reps || 0} <span class="text-xs text-green-900/50 font-normal">reps</span></span>
+                                    {#if s.rir !== null && s.rir !== undefined}
+                                        <span class="text-[10px] font-bold px-1.5 py-0.5 rounded {rirBadgeClass(s.rir)}">
+                                            RIR {s.rir}
+                                        </span>
+                                    {/if}
                                 </div>
-                            </div> 
-                        {/each} 
+                            </div>
+                        {/each}
                     </div>
                 </div> 
             {/each} 

@@ -3,7 +3,8 @@
   import { supabase } from "$lib/supabaseClient";
   import { goto } from "$app/navigation";
   import { onMount, onDestroy } from "svelte";
-  import { CirclePlus } from "lucide-svelte";
+  import { CirclePlus, Zap } from "lucide-svelte";
+  import { settings } from "$lib/stores/settings";
 
   // --- COMPONENTS ---
   import ExerciseCard from "$lib/components/workout/ExerciseCard.svelte";
@@ -14,6 +15,7 @@
   // 👇 New modular modals you should create
   import CustomExerciseModal from "$lib/components/workout/modals/CustomExerciseModal.svelte";
   import DeleteConfirmationModal from "$lib/components/workout/modals/DeleteConfirmationModal.svelte";
+  import RestTimer from "$lib/components/workout/RestTimer.svelte";
 
   // --- UTILS & ACTIONS ---
   import { getWorkoutData } from "$lib/utils/workoutLogic";
@@ -49,8 +51,11 @@
   let recapLoading = false;
   let newExerciseSearch = ""; // Passed to Custom Modal
 
-  // Add this variable near the top of your <script> block with your other state
   let saveTimeouts: Record<string, ReturnType<typeof setTimeout>> = {};
+
+  // Rest timer state
+  let showRestTimer = false;
+  let restTimerKey = 0;
 
   // --- INITIALIZATION ---
   onMount(async () => {
@@ -95,21 +100,29 @@
 
   // 1. ADD EXERCISE
   async function handleAddExercise(event: CustomEvent) {
-    const { exerciseName, targetSets, addToFuture } = event.detail;
+    const { exerciseName, targetSets, addToFuture, supersetPartner } = event.detail;
     showAddExerciseModal = false;
     loading = true;
 
     try {
-        // Add to current workout
-        const newEx = await Actions.addNewExercise(supabase, workoutId, exerciseName, targetSets, exercises.length);
-        exercises = [...exercises, newEx];
+        if (supersetPartner) {
+            // ── Superset pair ─────────────────────────────────────────────
+            const groupId = Date.now();
+            const [ex1, ex2] = await Promise.all([
+                Actions.addNewExercise(supabase, workoutId, exerciseName,    targetSets, exercises.length,     { superset_group: groupId }),
+                Actions.addNewExercise(supabase, workoutId, supersetPartner, targetSets, exercises.length + 1, { superset_group: groupId })
+            ]);
+            exercises = [...exercises, ex1, ex2];
+        } else {
+            // ── Single exercise ───────────────────────────────────────────
+            const newEx = await Actions.addNewExercise(supabase, workoutId, exerciseName, targetSets, exercises.length);
+            exercises = [...exercises, newEx];
 
-        // Add to future (optional)
-        if (addToFuture && workout.mesocycle_id) {
-            await Actions.addExerciseToFutureWorkouts(supabase, workout.mesocycle_id, workout.day_number, workout.week_number, exerciseName, targetSets);
+            if (addToFuture && workout.mesocycle_id) {
+                await Actions.addExerciseToFutureWorkouts(supabase, workout.mesocycle_id, workout.day_number, workout.week_number, exerciseName, targetSets);
+            }
         }
-        
-        // Scroll to bottom
+
         setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 100);
     } catch (e: any) {
         alert("Error adding exercise: " + e.message);
@@ -120,8 +133,14 @@
 
   // 2. EXERCISE ACTIONS (Bubbled from ExerciseCard)
   function handleSaveSet(e: CustomEvent) {
-      const exerciseToSave = e.detail.exercise;
+      const { exercise: exerciseToSave, startTimer } = e.detail;
       const exId = exerciseToSave.id;
+
+      // Only start the rest timer when RIR is logged (set is truly complete) and timer is enabled in settings
+      if (startTimer && $settings.timerEnabled) {
+          showRestTimer = true;
+          restTimerKey++;
+      }
 
       // Clear the previous timeout if the user is still typing or tapping around
       if (saveTimeouts[exId]) {
@@ -132,10 +151,8 @@
       saveTimeouts[exId] = setTimeout(async () => {
           try {
               await Actions.updateExerciseSets(supabase, exerciseToSave);
-              console.log("Saved successfully!"); 
           } catch (err) {
               console.error("Failed to save set:", err);
-              // Only alert if a legitimate error occurs, not a race condition
           }
       }, 500);
   }
@@ -211,6 +228,32 @@
       }
   }
 
+  // ── Superset grouping ──────────────────────────────────────────────────
+  // Group consecutive exercises that share a superset_group into visual pairs.
+  function buildExerciseGroups(exs: any[]): { exs: any[]; idxs: number[] }[] {
+      const result: { exs: any[]; idxs: number[] }[] = [];
+      let i = 0;
+      while (i < exs.length) {
+          const g = exs[i]?.config?.superset_group;
+          if (g) {
+              const group = [exs[i]];
+              const idxs = [i];
+              while (i + 1 < exs.length && exs[i + 1]?.config?.superset_group === g) {
+                  i++;
+                  group.push(exs[i]);
+                  idxs.push(i);
+              }
+              result.push({ exs: group, idxs });
+          } else {
+              result.push({ exs: [exs[i]], idxs: [i] });
+          }
+          i++;
+      }
+      return result;
+  }
+
+  $: exerciseGroups = buildExerciseGroups(exercises);
+
   async function handleFinish() {
       const now = new Date().toISOString();
       const { error } = await supabase.from('workouts').update({ completed: true, completed_at: now }).eq('id', workoutId);
@@ -264,20 +307,50 @@
     </div>
 
     <div class="max-w-3xl mx-auto p-4 space-y-6">
-      {#each exercises as exercise, index (exercise.id)}
-        <ExerciseCard 
-            bind:exercise={exercises[index]}
-            index={index}
+      {#each exerciseGroups as { exs: group, idxs } (group[0].id)}
+        {#if group.length > 1}
+          <!-- ── Superset group ─────────────────────────────────────────── -->
+          <div class="border border-orange-700/40 rounded-xl overflow-hidden">
+            <div class="bg-orange-900/20 px-4 py-2 border-b border-orange-800/30 flex items-center gap-2">
+              <Zap size={14} class="text-orange-400" />
+              <span class="text-xs font-black uppercase tracking-widest text-orange-400">Superset</span>
+            </div>
+            <div class="divide-y divide-orange-900/20">
+              {#each group as ex, gei (ex.id)}
+                {@const flatIdx = idxs[gei]}
+                <ExerciseCard
+                  bind:exercise={exercises[flatIdx]}
+                  index={flatIdx}
+                  totalExercises={exercises.length}
+                  {activeMenu}
+                  on:toggleMenu={handleToggleMenu}
+                  on:saveSet={handleSaveSet}
+                  on:saveNote={handleSaveNote}
+                  on:move={handleMoveExercise}
+                  on:loadHistory={handleLoadHistory}
+                  on:deleteExercise={() => promptDelete('exercise', { index: flatIdx, id: ex.id })}
+                  on:deleteSet={(e) => promptDelete('set', { exIndex: flatIdx, setIndex: e.detail.setIndex })}
+                />
+              {/each}
+            </div>
+          </div>
+        {:else}
+          <!-- ── Single exercise ────────────────────────────────────────── -->
+          {@const flatIdx = idxs[0]}
+          <ExerciseCard
+            bind:exercise={exercises[flatIdx]}
+            index={flatIdx}
             totalExercises={exercises.length}
-            activeMenu={activeMenu} 
+            {activeMenu}
             on:toggleMenu={handleToggleMenu}
             on:saveSet={handleSaveSet}
             on:saveNote={handleSaveNote}
             on:move={handleMoveExercise}
             on:loadHistory={handleLoadHistory}
-            on:deleteExercise={() => promptDelete('exercise', { index, id: exercise.id })}
-            on:deleteSet={(e) => promptDelete('set', { exIndex: index, setIndex: e.detail.setIndex })}
-        />
+            on:deleteExercise={() => promptDelete('exercise', { index: flatIdx, id: group[0].id })}
+            on:deleteSet={(e) => promptDelete('set', { exIndex: flatIdx, setIndex: e.detail.setIndex })}
+          />
+        {/if}
       {/each}
 
       <button on:click={() => { newExerciseSearch = ""; showAddExerciseModal = true; }} class="w-full py-4 border-2 border-dashed border-gray-700 text-gray-400 rounded-xl hover:border-blue-500 hover:text-blue-400 hover:bg-gray-800/50 transition-all flex flex-col items-center justify-center gap-2 group">
@@ -336,11 +409,19 @@
   {/if}
 
   {#if showRecapModal}
-    <RecapModal 
-        {recapLoading} 
-        {recapData} 
-        isComplete={true} 
-        on:close={() => showRecapModal = false} 
+    <RecapModal
+        {recapLoading}
+        {recapData}
+        isComplete={true}
+        on:close={() => showRecapModal = false}
+    />
+  {/if}
+
+  {#if showRestTimer}
+    <RestTimer
+      duration={$settings.restDuration}
+      restartKey={restTimerKey}
+      on:dismiss={() => showRestTimer = false}
     />
   {/if}
 </div>

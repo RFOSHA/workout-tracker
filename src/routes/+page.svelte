@@ -1,10 +1,14 @@
 <script lang="ts">
   import { fetchLifetimeStats } from "$lib/utils/statsLogic";
-  import Modal from "$lib/components/common/Modal.svelte"; 
-  import { 
-    PlayCircle, Calendar, ChevronRight, Trophy, BarChart2, Layers, 
-    Dumbbell, Activity, Award, X 
-  } from "lucide-svelte"; // Added Icons
+  import { fetchTrackedExercises, fetchExerciseProgress } from "$lib/utils/strengthProgressLogic";
+  import type { ProgressPoint } from "$lib/utils/strengthProgressLogic";
+  import Modal from "$lib/components/common/Modal.svelte";
+  import StrengthChart from "$lib/components/common/StrengthChart.svelte";
+  import {
+    PlayCircle, Calendar, ChevronRight, Trophy, BarChart2, Layers,
+    Dumbbell, Activity, Award, TrendingUp, X, Settings
+  } from "lucide-svelte";
+  import SettingsModal from "$lib/components/common/SettingsModal.svelte";
   import { onMount } from "svelte";
   import type { Session } from "@supabase/supabase-js";
   import { supabase } from "$lib/supabaseClient";
@@ -15,9 +19,18 @@
   let loadingData = true;
   let nextWorkout: any = null;
   // --- LIFETIME STATS STATE ---
+  let showSettingsModal = false;
   let showStatsModal = false;
   let statsLoading = false;
   let lifetimeStats: any = null;
+
+  // --- STRENGTH PROGRESS STATE ---
+  let trackedExercises: string[] = [];
+  let selectedExercise = "";
+  let progressPoints: ProgressPoint[] = [];
+  let progressLoading = false;
+  let progressMetric: 'weight' | 'est1rm' = 'weight';
+  const progressCache = new Map<string, ProgressPoint[]>();
 
   onMount(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -65,17 +78,40 @@
 
   async function loadLifetimeStats() {
     if (lifetimeStats) { showStatsModal = true; return; }
-    
+
     statsLoading = true;
     showStatsModal = true;
-    
+
     try {
-        lifetimeStats = await fetchLifetimeStats(supabase);
+        [lifetimeStats, trackedExercises] = await Promise.all([
+            fetchLifetimeStats(supabase),
+            fetchTrackedExercises(supabase)
+        ]);
     } catch (error) {
         console.error(error);
         alert("Could not load stats.");
     } finally {
         statsLoading = false;
+    }
+  }
+
+  async function selectExercise(name: string) {
+    selectedExercise = name;
+    progressMetric = 'weight';
+    if (progressCache.has(name)) {
+        progressPoints = progressCache.get(name)!;
+        return;
+    }
+    progressLoading = true;
+    try {
+        const data = await fetchExerciseProgress(supabase, name);
+        progressCache.set(name, data);
+        progressPoints = data;
+    } catch (e) {
+        console.error(e);
+        progressPoints = [];
+    } finally {
+        progressLoading = false;
     }
   }
 
@@ -92,16 +128,25 @@
       
       <header class="flex justify-between items-center mb-8 border-b border-gray-700 pb-4">
         <h1 class="text-3xl font-bold text-blue-400">Workout Tracker</h1>
-         <button 
-                on:click={loadLifetimeStats}
-                class="bg-gray-800 p-2 rounded-lg text-yellow-500 hover:text-yellow-400 hover:bg-gray-700 transition-colors border border-gray-700"
-                title="Lifetime Stats"
-            >
-                <Trophy size={18} />
+        <div class="flex items-center gap-2">
+          <button
+              on:click={loadLifetimeStats}
+              class="bg-gray-800 p-2 rounded-lg text-yellow-500 hover:text-yellow-400 hover:bg-gray-700 transition-colors border border-gray-700"
+              title="Lifetime Stats"
+          >
+              <Trophy size={18} />
           </button>
-        <button on:click={() => supabase.auth.signOut()} class="text-sm text-gray-400 hover:text-white transition-colors">
-          Sign Out
-        </button>
+          <button
+              on:click={() => showSettingsModal = true}
+              class="bg-gray-800 p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-700 transition-colors border border-gray-700"
+              title="Settings"
+          >
+              <Settings size={18} />
+          </button>
+          <button on:click={() => supabase.auth.signOut()} class="text-sm text-gray-400 hover:text-white transition-colors ml-1">
+            Sign Out
+          </button>
+        </div>
       </header>
 
       {#if loadingData}
@@ -178,6 +223,10 @@
 
     </div>
   </div>
+{/if}
+
+{#if showSettingsModal}
+  <SettingsModal on:close={() => showSettingsModal = false} />
 {/if}
 
 {#if showStatsModal}
@@ -262,16 +311,69 @@
                                 <span class="text-right">Max Load</span>
                             </div>
                             {#each lifetimeStats.prs as pr}
-                                <div class="grid grid-cols-[1fr_80px] gap-2 p-3 border-b border-gray-800 last:border-0 items-center hover:bg-gray-800/50 transition-colors">
-                                    <div class="font-medium text-sm text-gray-200">{pr.name}</div>
+                                <button
+                                    on:click={() => selectExercise(pr.name)}
+                                    class="w-full grid grid-cols-[1fr_80px] gap-2 p-3 border-b border-gray-800 last:border-0 items-center transition-colors text-left
+                                        {selectedExercise === pr.name ? 'bg-blue-900/30 border-l-2 border-l-blue-500' : 'hover:bg-gray-800/50'}"
+                                >
+                                    <div class="font-medium text-sm {selectedExercise === pr.name ? 'text-blue-300' : 'text-gray-200'}">{pr.name}</div>
                                     <div class="text-right text-sm font-bold text-white">
                                         {pr.weight} <span class="text-xs text-gray-500 font-normal">x{pr.reps}</span>
                                     </div>
-                                </div>
+                                </button>
                             {/each}
                         </div>
                     </div>
                 {/if}
+
+                <!-- Strength Progress Chart -->
+                <div>
+                    <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                        <TrendingUp size={18} class="text-green-400"/> Strength Progress
+                    </h3>
+
+                    <div class="relative mb-4">
+                        <select
+                            value={selectedExercise}
+                            on:change={(e) => selectExercise(e.currentTarget.value)}
+                            class="w-full appearance-none bg-gray-800 text-sm text-white border border-gray-600 rounded-lg px-3 py-2.5 pr-8 focus:outline-none focus:border-blue-500"
+                        >
+                            <option value="">Select an exercise...</option>
+                            {#each trackedExercises as name}
+                                <option value={name}>{name}</option>
+                            {/each}
+                        </select>
+                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-400">
+                            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+                        </div>
+                    </div>
+
+                    {#if selectedExercise}
+                        {#if progressLoading}
+                            <div class="text-center text-gray-500 py-10 text-sm">Loading...</div>
+                        {:else if progressPoints.length < 2}
+                            <div class="text-center text-gray-600 py-10 text-sm border border-gray-700/50 rounded-xl">
+                                Need data from at least 2 completed blocks to show a trend.
+                            </div>
+                        {:else}
+                            <div class="flex gap-2 mb-3">
+                                <button
+                                    on:click={() => progressMetric = 'weight'}
+                                    class="text-xs px-3 py-1 rounded-full font-bold transition-colors
+                                        {progressMetric === 'weight' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:text-white'}"
+                                >Top Weight</button>
+                                <button
+                                    on:click={() => progressMetric = 'est1rm'}
+                                    class="text-xs px-3 py-1 rounded-full font-bold transition-colors
+                                        {progressMetric === 'est1rm' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:text-white'}"
+                                >Est. 1RM</button>
+                            </div>
+                            <div class="bg-gray-800/50 rounded-xl border border-gray-700 px-3 pt-3 pb-1">
+                                <StrengthChart points={progressPoints} metric={progressMetric} />
+                            </div>
+                        {/if}
+                    {/if}
+                </div>
 
             </div>
         {/if}
