@@ -1,9 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { ANTHROPIC_API_KEY } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-
-const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 
 const SYSTEM_PROMPT = `You are an expert strength and conditioning coach specializing in hypertrophy mesocycle programming. Help users design effective 4-12 week training blocks.
 
@@ -128,6 +126,7 @@ export const POST: RequestHandler = async ({ request }) => {
         exerciseLibrary: { name: string; muscle_group: string }[];
     };
 
+    const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
     const fullSystem = SYSTEM_PROMPT + buildLibraryPrompt(exerciseLibrary);
 
     try {
