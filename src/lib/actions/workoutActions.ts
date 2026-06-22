@@ -29,8 +29,6 @@ export async function updateExerciseSets(supabase: SupabaseClient, exercise: any
         };
     });
 
-    console.log("Saving sets for", exercise.exercise_name, cleanResults); // Debug Log
-
     // 2. Perform the update
     const { error } = await supabase
         .from('workout_exercises')

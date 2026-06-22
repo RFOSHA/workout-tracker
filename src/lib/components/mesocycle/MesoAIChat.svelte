@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher, tick } from "svelte";
   import { Bot, Send, CheckCircle, RotateCcw, Dumbbell, Calendar, ChevronDown, ChevronUp, Sparkles } from "lucide-svelte";
+  import { supabase } from "$lib/supabaseClient";
 
   export let exerciseLibrary: { name: string; muscle_group: string }[] = [];
 
@@ -53,9 +54,13 @@
     apiHistory = [...apiHistory, { role: "user", content: text }];
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch("/api/generate-meso", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { "Authorization": `Bearer ${session.access_token}` } : {})
+        },
         body: JSON.stringify({
           messages: apiHistory,
           // Pass full library so server can constrain Claude to only these exercises

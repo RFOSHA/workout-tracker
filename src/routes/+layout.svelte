@@ -68,13 +68,13 @@
 
       <a href="/mesocycle"  class="flex flex-col items-center gap-1 {$page.url.pathname === '/mesocycle' ? 'text-sleeper-accent' : 'text-sleeper-muted hover:text-white'} transition">
         <Calendar size={24} />
-        <span class="text-[10px] font-medium">Meso</span>
+        <span class="text-[10px] font-medium">Plans</span>
       </a>
 
-      <button class="flex flex-col items-center gap-1 text-sleeper-muted hover:text-white transition">
+      <a href="/profile" class="flex flex-col items-center gap-1 {$page.url.pathname === '/profile' ? 'text-sleeper-accent' : 'text-sleeper-muted hover:text-white'} transition">
         <User size={24} />
         <span class="text-[10px] font-medium">Profile</span>
-      </button>
+      </a>
       
     </div>
   </nav>

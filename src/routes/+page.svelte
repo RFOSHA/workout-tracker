@@ -6,9 +6,10 @@
   import StrengthChart from "$lib/components/common/StrengthChart.svelte";
   import {
     PlayCircle, Calendar, ChevronRight, Trophy, BarChart2, Layers,
-    Dumbbell, Activity, Award, TrendingUp, X, Settings
+    Dumbbell, Activity, Award, TrendingUp, X, User, ChevronDown, Bot, CheckCircle, Zap
   } from "lucide-svelte";
-  import SettingsModal from "$lib/components/common/SettingsModal.svelte";
+
+  let showHowItWorks = false;
   import { onMount } from "svelte";
   import type { Session } from "@supabase/supabase-js";
   import { supabase } from "$lib/supabaseClient";
@@ -19,7 +20,6 @@
   let loadingData = true;
   let nextWorkout: any = null;
   // --- LIFETIME STATS STATE ---
-  let showSettingsModal = false;
   let showStatsModal = false;
   let statsLoading = false;
   let lifetimeStats: any = null;
@@ -136,16 +136,13 @@
           >
               <Trophy size={18} />
           </button>
-          <button
-              on:click={() => showSettingsModal = true}
+          <a
+              href="/profile"
               class="bg-gray-800 p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-700 transition-colors border border-gray-700"
-              title="Settings"
+              title="Profile & Settings"
           >
-              <Settings size={18} />
-          </button>
-          <button on:click={() => supabase.auth.signOut()} class="text-sm text-gray-400 hover:text-white transition-colors ml-1">
-            Sign Out
-          </button>
+              <User size={18} />
+          </a>
         </div>
       </header>
 
@@ -159,14 +156,14 @@
           <div class="bg-gray-800 p-6 rounded-lg border-l-4 border-green-500 shadow-lg">
             <div class="flex justify-between items-start">
               <div>
-                <h2 class="text-2xl font-bold mb-1">Current Training Block</h2>
-                <p class="text-gray-400 text-sm mb-4">Started on {new Date(currentMesocycle.created_at).toLocaleDateString()}</p>
+                <h2 class="text-2xl font-bold mb-1">{currentMesocycle.name}</h2>
+                <p class="text-gray-400 text-sm mb-4">Started {new Date(currentMesocycle.created_at).toLocaleDateString()}</p>
               </div>
               <span class="bg-green-900 text-green-300 text-xs font-bold px-2 py-1 rounded uppercase">Active</span>
             </div>
-            
+
             <p class="text-gray-300 mb-6">
-              Training <strong>{currentMesocycle.days_per_week} days</strong> a week 
+              Training <strong>{currentMesocycle.days_per_week} days</strong> a week
               for <strong>{currentMesocycle.duration_weeks} weeks</strong>.
             </p>
             
@@ -194,14 +191,14 @@
           <div class="border-t border-gray-800 pt-8">
             <div class="bg-gray-800/50 p-6 rounded-lg border border-gray-700 flex flex-col md:flex-row items-center justify-between gap-4">
               <div>
-                <h3 class="text-lg font-bold text-gray-200">Start a New Program?</h3>
-                <p class="text-gray-400 text-sm">Ready for a fresh start? Creating a new block will set it as your active program.</p>
+                <h3 class="text-lg font-bold text-gray-200">Start a New Plan?</h3>
+                <p class="text-gray-400 text-sm">Ready for a fresh start? Creating a new plan will set it as your active program.</p>
               </div>
-              <a 
-                href="/mesocycle/new" 
+              <a
+                href="/mesocycle/new"
                 class="whitespace-nowrap bg-gray-700 hover:bg-blue-600 border border-gray-600 hover:border-blue-500 text-white px-4 py-2 rounded transition-all"
               >
-                + Create New Block
+                + New Workout Plan
               </a>
             </div>
           </div>
@@ -210,23 +207,89 @@
 
       {:else}
         <div class="text-center py-16 bg-gray-800 rounded-lg border border-gray-700 border-dashed">
-          <h2 class="text-2xl font-bold mb-4">No Active Mesocycle</h2>
-          <p class="text-gray-400 mb-8 max-w-md mx-auto">You don't have a training plan set up yet. Create a new block to generate your weekly schedule.</p>
-          <a 
-            href="/mesocycle/new" 
+          <h2 class="text-2xl font-bold mb-4">No Active Workout Plan</h2>
+          <p class="text-gray-400 mb-8 max-w-md mx-auto">You don't have a training plan set up yet. Create one to generate your weekly schedule.</p>
+          <a
+            href="/mesocycle/new"
             class="inline-block bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg shadow-lg hover:shadow-blue-500/20 transition-all transform hover:-translate-y-1"
           >
-            Create New Mesocycle
+            Create Workout Plan
           </a>
         </div>
       {/if}
 
+      <!-- ── How it Works accordion ──────────────────────────────────────── -->
+      <div class="border-t border-gray-800 pt-6 mt-2">
+        <button
+          on:click={() => showHowItWorks = !showHowItWorks}
+          class="w-full flex items-center justify-between text-left group"
+        >
+          <span class="text-sm font-bold text-gray-500 group-hover:text-gray-300 transition-colors uppercase tracking-widest">
+            How does this app work?
+          </span>
+          <ChevronDown
+            size={16}
+            class="text-gray-600 group-hover:text-gray-400 transition-all {showHowItWorks ? 'rotate-180' : ''}"
+          />
+        </button>
+
+        {#if showHowItWorks}
+          <div class="mt-4 grid gap-3">
+
+            <div class="flex gap-4 bg-gray-800/50 border border-gray-700/60 rounded-xl p-4">
+              <div class="bg-blue-900/50 p-2.5 rounded-xl shrink-0 h-fit">
+                <Bot size={18} class="text-blue-400" />
+              </div>
+              <div>
+                <p class="text-sm font-bold text-white mb-1">1 — Create a Workout Plan</p>
+                <p class="text-xs text-gray-400 leading-relaxed">
+                  Use the <strong class="text-gray-300">AI Builder</strong> to describe your goals in plain English ("6-week PPL for hypertrophy, 5 days/week") and Claude generates a full structured plan — exercises, sets, and a progressive overload schedule. Or build it manually with the step-by-step wizard.
+                </p>
+              </div>
+            </div>
+
+            <div class="flex gap-4 bg-gray-800/50 border border-gray-700/60 rounded-xl p-4">
+              <div class="bg-green-900/50 p-2.5 rounded-xl shrink-0 h-fit">
+                <Dumbbell size={18} class="text-green-400" />
+              </div>
+              <div>
+                <p class="text-sm font-bold text-white mb-1">2 — Train and Log</p>
+                <p class="text-xs text-gray-400 leading-relaxed">
+                  Each session, log your <strong class="text-gray-300">weight and reps</strong> for every set. Tap an RIR number (Reps in Reserve) to record how hard the set felt — 0 means failure, 5 means very easy. The app uses this to auto-suggest progressions each week.
+                </p>
+              </div>
+            </div>
+
+            <div class="flex gap-4 bg-gray-800/50 border border-gray-700/60 rounded-xl p-4">
+              <div class="bg-purple-900/50 p-2.5 rounded-xl shrink-0 h-fit">
+                <BarChart2 size={18} class="text-purple-400" />
+              </div>
+              <div>
+                <p class="text-sm font-bold text-white mb-1">3 — Track Your Progress</p>
+                <p class="text-xs text-gray-400 leading-relaxed">
+                  When you finish a plan, a full <strong class="text-gray-300">Performance Recap</strong> shows your total volume, lift-by-lift progression, weekly set counts, and muscle group balance — so you can see exactly what improved.
+                </p>
+              </div>
+            </div>
+
+            <div class="flex gap-4 bg-gray-800/50 border border-gray-700/60 rounded-xl p-4">
+              <div class="bg-orange-900/50 p-2.5 rounded-xl shrink-0 h-fit">
+                <Zap size={18} class="text-orange-400" />
+              </div>
+              <div>
+                <p class="text-sm font-bold text-white mb-1">4 — Smart Next Plan</p>
+                <p class="text-xs text-gray-400 leading-relaxed">
+                  After completing a plan, the app analyzes your performance and <strong class="text-gray-300">automatically suggests your next one</strong> — same split, adjusted volume based on how well your lifts progressed. One tap to accept and start.
+                </p>
+              </div>
+            </div>
+
+          </div>
+        {/if}
+      </div>
+
     </div>
   </div>
-{/if}
-
-{#if showSettingsModal}
-  <SettingsModal on:close={() => showSettingsModal = false} />
 {/if}
 
 {#if showStatsModal}
