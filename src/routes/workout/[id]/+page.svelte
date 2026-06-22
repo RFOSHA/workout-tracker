@@ -9,6 +9,7 @@
   // --- COMPONENTS ---
   import ExerciseCard from "$lib/components/workout/ExerciseCard.svelte";
   import RecapModal from "$lib/components/workout/modals/RecapModal.svelte";
+  import NextPlanWizard from "$lib/components/mesocycle/NextPlanWizard.svelte";
   import HistoryModal from "$lib/components/workout/modals/HistoryModal.svelte";
   import FinishModal from "$lib/components/workout/modals/FinishModal.svelte";
   import AddExerciseModal from "$lib/components/workout/modals/AddExerciseModal.svelte";
@@ -49,6 +50,8 @@
   let historyExerciseName = "";
   let recapData: any = null;
   let recapLoading = false;
+  let completedMeso: any = null;
+  let showNextPlanWizard = false;
   let newExerciseSearch = ""; // Passed to Custom Modal
 
   let saveTimeouts: Record<string, ReturnType<typeof setTimeout>> = {};
@@ -274,11 +277,13 @@
                 recapLoading = true;
                 showRecapModal = true;
                 
-                // 👇 Add logging here
-                console.log("Generating recap for meso:", workout.mesocycle_id);
                 try {
-                    recapData = await fetchRecapData(supabase, workout.mesocycle_id);
-                    console.log("Recap Data:", recapData);
+                    const [recap, mesoResult] = await Promise.all([
+                        fetchRecapData(supabase, workout.mesocycle_id),
+                        supabase.from('mesocycles').select('id, name, duration_weeks, days_per_week').eq('id', workout.mesocycle_id).single()
+                    ]);
+                    recapData = recap;
+                    completedMeso = mesoResult.data;
                 } catch (err) {
                     console.error("Recap generation failed:", err);
                 }
@@ -412,8 +417,19 @@
     <RecapModal
         {recapLoading}
         {recapData}
+        {completedMeso}
         isComplete={true}
         on:close={() => showRecapModal = false}
+        on:planNext={() => { showRecapModal = false; showNextPlanWizard = true; }}
+    />
+  {/if}
+
+  {#if showNextPlanWizard}
+    <NextPlanWizard
+        {recapData}
+        {completedMeso}
+        {exerciseLibrary}
+        on:close={() => showNextPlanWizard = false}
     />
   {/if}
 

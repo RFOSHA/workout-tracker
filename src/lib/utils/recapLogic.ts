@@ -13,7 +13,6 @@ export function getWeeklyChartData(data: any, filter: string) {
 }
 
 export async function fetchRecapData(supabase: SupabaseClient, mesoId: string) {
-    console.log("Fetching recap for Meso ID:", mesoId);
 
     // 1. Fetch Meso Duration
     const { data: meso, error: mesoError } = await supabase
@@ -22,10 +21,7 @@ export async function fetchRecapData(supabase: SupabaseClient, mesoId: string) {
         .eq('id', mesoId)
         .single();
     
-    if (mesoError || !meso) {
-        console.error("Recap Error: Mesocycle not found", mesoError);
-        return null;
-    }
+    if (mesoError || !meso) return null;
 
     // 2. Fetch Workouts
     const { data: workouts } = await supabase
@@ -33,10 +29,7 @@ export async function fetchRecapData(supabase: SupabaseClient, mesoId: string) {
         .select('id, week_number')
         .eq('mesocycle_id', mesoId);
 
-    if (!workouts || workouts.length === 0) {
-        console.error("Recap Error: No workouts found");
-        return null;
-    }
+    if (!workouts || workouts.length === 0) return null;
 
     const workoutIdMap = new Map(workouts.map(w => [w.id, w.week_number]));
     const ids = workouts.map(w => w.id);
@@ -125,8 +118,6 @@ export async function fetchRecapData(supabase: SupabaseClient, mesoId: string) {
     const weeklyBreakdown = Object.entries(weeklyDataMap)
         .map(([week, data]) => ({ week: Number(week), ...data }))
         .sort((a: any, b: any) => a.week - b.week);
-
-    console.log("Recap Generated Successfully");
 
     return {
         totalVolume,

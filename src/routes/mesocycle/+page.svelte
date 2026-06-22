@@ -151,8 +151,8 @@
     <div class="text-center text-gray-500 mt-10 animate-pulse">Loading schedule...</div>
   {:else if !mesocycle}
     <div class="text-center mt-20">
-      <h2 class="text-xl font-bold mb-4">No Active Mesocycle</h2>
-      <a href="/mesocycle/new" class="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-full font-bold transition-colors inline-block">Create Plan</a>
+      <h2 class="text-xl font-bold mb-4">No Workout Plans Yet</h2>
+      <a href="/mesocycle/new" class="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-full font-bold transition-colors inline-block">Create Workout Plan</a>
     </div>
   {:else}
     

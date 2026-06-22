@@ -1,7 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { createClient } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+
+const MAX_MESSAGES = 40;       // max turns in a single meso conversation
+const MAX_MSG_CHARS = 4_000;   // max characters per user message
 
 const SYSTEM_PROMPT = `You are an expert strength and conditioning coach specializing in hypertrophy mesocycle programming. Help users design effective 4-12 week training blocks.
 
@@ -121,21 +125,45 @@ function buildLibraryPrompt(library: { name: string; muscle_group: string }[]): 
 }
 
 export const POST: RequestHandler = async ({ request }) => {
+    // ── Auth check ────────────────────────────────────────────────────────
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+        return json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const token = authHeader.slice(7);
+    const sb = createClient(env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY);
+    const { data: { user }, error: authError } = await sb.auth.getUser(token);
+    if (authError || !user) {
+        return json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // ── Parse & validate body ─────────────────────────────────────────────
     const { messages, exerciseLibrary = [] } = await request.json() as {
         messages: Anthropic.MessageParam[];
         exerciseLibrary: { name: string; muscle_group: string }[];
     };
+
+    if (!Array.isArray(messages) || messages.length > MAX_MESSAGES) {
+        return json({ error: 'Invalid request' }, { status: 400 });
+    }
+    // Trim any individual message that is suspiciously long
+    const safeMessages = messages.map(m => {
+        if (typeof m.content === 'string' && m.content.length > MAX_MSG_CHARS) {
+            return { ...m, content: m.content.slice(0, MAX_MSG_CHARS) };
+        }
+        return m;
+    });
 
     const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
     const fullSystem = SYSTEM_PROMPT + buildLibraryPrompt(exerciseLibrary);
 
     try {
         const response = await client.messages.create({
-            model: 'claude-opus-4-7',
+            model: 'claude-sonnet-4-6',
             max_tokens: 4096,
             system: fullSystem,
             tools: [PROPOSE_TOOL],
-            messages
+            messages: safeMessages
         });
 
         const toolUseBlock = response.content.find(

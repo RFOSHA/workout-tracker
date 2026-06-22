@@ -6,11 +6,13 @@ const STORAGE_KEY = 'wt-settings';
 export interface AppSettings {
     timerEnabled: boolean;
     restDuration: number; // seconds
+    rirEnabled: boolean;
 }
 
 const DEFAULTS: AppSettings = {
     timerEnabled: true,
-    restDuration: 90
+    restDuration: 90,
+    rirEnabled: true
 };
 
 function load(): AppSettings {

@@ -12,6 +12,7 @@
   export let recapLoading = false;
   export let recapData: any = null;
   export let isComplete = false;
+  export let completedMeso: any = null;
 
   let selectedRecapMuscle = "All";
   let chartMetric: 'sets' | 'volume' = 'sets';
@@ -37,10 +38,10 @@
         <div>
             <h2 class="text-2xl font-bold flex items-center gap-2 text-white">
                 <BarChart2 size={24} class="text-blue-400"/> 
-                {isComplete ? 'Mesocycle Complete!' : 'Cycle Progress'}
+                {isComplete ? 'Workout Plan Complete!' : 'Plan Progress'}
             </h2>
             <p class="text-sm text-gray-400 mt-1">
-                {isComplete ? 'Great job finishing the block.' : "Here is your progress so far."}
+                {isComplete ? 'Great work finishing your plan!' : "Here is your progress so far."}
             </p>
         </div>
     </div>
@@ -190,8 +191,16 @@
                 </div>
             {/if}
 
-            <div class="pt-4">
-                <button on:click={() => goto('/')} class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl shadow-lg">
+            <div class="pt-4 space-y-3">
+                {#if isComplete && completedMeso}
+                    <button
+                        on:click={() => dispatch('planNext')}
+                        class="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 rounded-xl shadow-lg flex items-center justify-center gap-2"
+                    >
+                        Plan My Next Block →
+                    </button>
+                {/if}
+                <button on:click={() => goto('/')} class="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-colors">
                     Return Home
                 </button>
             </div>

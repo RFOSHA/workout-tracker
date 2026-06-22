@@ -1,6 +1,7 @@
 <script lang="ts">
   import { MoreVertical, Zap, Trash2, CornerDownRight } from 'lucide-svelte';
   import { createEventDispatcher } from 'svelte';
+  import { settings } from '$lib/stores/settings';
 
   // 👇 RENAME 'set' to 'setData' to avoid conflict with Svelte's internal API
   export let setData: any;
@@ -98,7 +99,7 @@
    </div>
 </div>
 
-{#if hasData}
+{#if hasData && $settings.rirEnabled}
   <div class="grid grid-cols-[30px_1fr_1fr_30px] gap-4 mt-1.5">
     <div></div>
     <div class="col-span-2 flex items-center gap-1">
